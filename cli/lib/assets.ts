@@ -12,7 +12,7 @@ export type AssetSource =
 	| { type: "file"; path?: string }
 	| { type: "url"; url: string }
 	| { type: "openverse" | "pexels"; url: string; id: string; landing?: string }
-	| { type: "openai" | "elevenlabs"; prompt: string; model?: string }
+	| { type: "openai" | "elevenlabs" | "google-flow"; prompt: string; model?: string }
 	| { type: "html"; html: string }
 	| { type: "upload"; request?: string };
 

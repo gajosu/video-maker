@@ -7,11 +7,13 @@ import {
 	mkdirSync,
 	readdirSync,
 	readFileSync,
+	statSync,
 	writeFileSync,
 } from "node:fs";
 import { homedir } from "node:os";
 import { basename, join } from "node:path";
-import { projectDir, ROOT } from "../../cli/lib/paths.ts";
+import { loadManifest } from "../../cli/lib/assets.ts";
+import { projectDir, ROOT, videoDir } from "../../cli/lib/paths.ts";
 
 export type Phase = "script" | "script-changes" | "build" | "change";
 export type JobStatus = "working" | "review" | "done" | "error" | "cancelled";
@@ -27,6 +29,12 @@ export type Job = {
 	session?: string;
 	pid?: number;
 	voice?: string;
+	/** library assets the user picked for this video */
+	assets?: string[];
+	/** Google Flow generation budget (0 = not allowed) */
+	flow?: { clips: number; images: number };
+	/** music preset override ("" = the style's default) */
+	music?: string;
 	error?: string;
 	summary?: string;
 	cost: number;
@@ -35,7 +43,7 @@ export type Job = {
 };
 export type LogEvent = {
 	t: number;
-	k: "you" | "say" | "tool" | "done" | "error";
+	k: "you" | "say" | "tool" | "done" | "error" | "media";
 	x: string;
 };
 
@@ -158,6 +166,116 @@ function describe(name: string, input: Record<string, unknown>): string {
 	return name;
 }
 
+// ---------- media shown inline in the chat ----------
+// After every tool result we diff the asset library, the video's stills and its render, and read stock-search
+// output, so generated / added / found media appears in the chat as pictures and players, not just text.
+type MediaSnap = {
+	assets: Record<string, string>;
+	stills: Record<string, number>;
+	out: number;
+};
+const mtime = (f: string) => {
+	try {
+		return statSync(f).mtimeMs;
+	} catch {
+		return 0;
+	}
+};
+function mediaSnap(p: string, v: string): MediaSnap {
+	const assets: Record<string, string> = {};
+	try {
+		for (const a of Object.values(loadManifest(p).assets))
+			assets[a.name] =
+				`${a.file}|${mtime(join(projectDir(p), "assets", a.file))}`;
+	} catch {}
+	const stills: Record<string, number> = {};
+	const sd = join(videoDir(p, v), "stills");
+	if (existsSync(sd))
+		for (const f of readdirSync(sd))
+			if (f.endsWith(".jpg")) stills[f] = mtime(join(sd, f));
+	return {
+		assets,
+		stills,
+		out: mtime(join(videoDir(p, v), "out", `${v}.mp4`)),
+	};
+}
+function mediaDiff(p: string, v: string, before: MediaSnap, after: MediaSnap) {
+	const lib = (() => {
+		try {
+			return loadManifest(p).assets;
+		} catch {
+			return {};
+		}
+	})();
+	for (const [name, sig] of Object.entries(after.assets)) {
+		if (before.assets[name] === sig) continue;
+		const a = lib[name];
+		if (!a || (a.kind !== "image" && a.kind !== "video")) continue;
+		log(
+			p,
+			v,
+			"media",
+			JSON.stringify({
+				type: "asset",
+				name,
+				kind: a.kind,
+				file: a.file,
+				source: a.source?.type ?? "",
+				updated: !!before.assets[name],
+				prompt:
+					"prompt" in (a.source ?? {})
+						? (a.source as { prompt?: string }).prompt?.slice(0, 200)
+						: undefined,
+				t: Date.now(),
+			}),
+		);
+	}
+	const newStills = Object.entries(after.stills)
+		.filter(([f, m]) => before.stills[f] !== m)
+		.map(([f]) => f)
+		.sort(
+			(a, b) => Number.parseFloat(a.slice(1)) - Number.parseFloat(b.slice(1)),
+		);
+	if (newStills.length)
+		log(
+			p,
+			v,
+			"media",
+			JSON.stringify({
+				type: "stills",
+				files: newStills.slice(0, 16),
+				t: Date.now(),
+			}),
+		);
+	if (after.out && after.out !== before.out)
+		log(
+			p,
+			v,
+			"media",
+			JSON.stringify({ type: "render", file: `out/${v}.mp4`, t: Date.now() }),
+		);
+}
+/** "bun vk asset search" output → thumbnails */
+function searchResults(text: string) {
+	const lines = text.split("\n");
+	const items: { n: number; title: string; thumb: string; source: string }[] =
+		[];
+	for (let i = 0; i < lines.length - 1; i++) {
+		const m =
+			lines[i].match(/^\s*(\d+)\. \[(\w+)\] (.+?)\s{2,}/) ??
+			lines[i].match(/^\s*(\d+)\. \[(\w+)\] (\S+)/);
+		const url = lines[i + 1].trim();
+		if (m && /^https:\/\/\S+\.(jpe?g|png|webp)/i.test(url))
+			items.push({
+				n: Number(m[1]),
+				source: m[2],
+				title: m[3].trim(),
+				thumb: url,
+			});
+	}
+	return items;
+}
+
 /** start (or resume) a Claude session for this job with `prompt`; returns immediately */
 export function run(job: Job, phase: Phase, prompt: string) {
 	const args = [
@@ -185,6 +303,7 @@ export function run(job: Job, phase: Phase, prompt: string) {
 	job.error = undefined;
 	saveJob(job);
 	const { project: p, video: v } = job;
+	let snap = mediaSnap(p, v);
 	let buf = "";
 	let stderr = "";
 	let lastResult: { ok: boolean; text: string } | null = null;
@@ -216,6 +335,43 @@ export function run(job: Job, phase: Phase, prompt: string) {
 			) {
 				job.session = e.session_id;
 				saveJob(job);
+			}
+			if (e.type === "user") {
+				const content = ((e.message as { content?: unknown[] })?.content ??
+					[]) as Record<string, unknown>[];
+				let toolDone = false;
+				for (const c of content) {
+					if (c.type !== "tool_result") continue;
+					toolDone = true;
+					const text =
+						typeof c.content === "string"
+							? c.content
+							: Array.isArray(c.content)
+								? (c.content as Record<string, unknown>[])
+										.map((x) => (typeof x.text === "string" ? x.text : ""))
+										.join("\n")
+								: "";
+					const items = searchResults(text);
+					if (items.length) {
+						flush();
+						log(
+							p,
+							v,
+							"media",
+							JSON.stringify({
+								type: "search",
+								items: items.slice(0, 12),
+								t: Date.now(),
+							}),
+						);
+					}
+				}
+				if (toolDone) {
+					const now = mediaSnap(p, v);
+					flush();
+					mediaDiff(p, v, snap, now);
+					snap = now;
+				}
 			}
 			if (e.type === "assistant") {
 				const content = ((e.message as { content?: unknown[] })?.content ??

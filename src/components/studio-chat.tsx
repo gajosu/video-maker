@@ -1,12 +1,195 @@
 import { useRouter } from "@tanstack/react-router";
-import { Loader2, Send, Square, Wrench } from "lucide-react";
+import {
+	Film,
+	ImageIcon,
+	Loader2,
+	Search,
+	Send,
+	Square,
+	Wrench,
+	X,
+} from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { fileUrl } from "#/lib/format";
 import { PHASE_ES } from "#/lib/studio";
 import { cn } from "#/lib/utils";
 import { cancelJob, getChat, messageJob } from "#/server/studio";
 
 const field =
 	"w-full rounded-lg border bg-card px-3 py-2 text-sm outline-none focus:border-white/40";
+
+type Media =
+	| {
+			type: "asset";
+			name: string;
+			kind: "image" | "video";
+			file: string;
+			source?: string;
+			updated?: boolean;
+			prompt?: string;
+			t: number;
+	  }
+	| { type: "stills"; files: string[]; t: number }
+	| { type: "render"; file: string; t: number }
+	| {
+			type: "search";
+			items: { n: number; title: string; thumb: string; source: string }[];
+			t: number;
+	  };
+
+const SOURCE_ES: Record<string, string> = {
+	"google-flow": "Generado con Google Flow",
+	openai: "Generado con OpenAI",
+	elevenlabs: "Generado con ElevenLabs",
+	pexels: "De Pexels",
+	openverse: "De Openverse",
+	upload: "Subido",
+	html: "Pantalla renderizada",
+	url: "Descargado",
+	file: "Añadido",
+};
+
+/** generated / found media, shown inline in the chat */
+function MediaEvent({
+	project,
+	video,
+	raw,
+	onZoom,
+}: {
+	project: string;
+	video: string;
+	raw: string;
+	onZoom: (src: string) => void;
+}) {
+	let m: Media;
+	try {
+		m = JSON.parse(raw);
+	} catch {
+		return null;
+	}
+	if (m.type === "asset") {
+		const src = fileUrl(project, `assets/${m.file}`, m.t);
+		return (
+			<div className="max-w-[260px] overflow-hidden rounded-lg border bg-background/60">
+				{m.kind === "image" ? (
+					<button
+						type="button"
+						onClick={() => onZoom(src)}
+						className="checker block w-full"
+					>
+						<img
+							src={src}
+							alt={m.name}
+							className="max-h-72 w-full object-contain"
+						/>
+					</button>
+				) : (
+					<video
+						src={src}
+						controls
+						muted
+						loop
+						playsInline
+						className="max-h-80 w-full bg-black"
+					>
+						<track kind="captions" />
+					</video>
+				)}
+				<div className="px-2.5 py-2 text-xs">
+					<div className="flex items-center gap-1.5 font-mono text-foreground">
+						{m.kind === "image" ? (
+							<ImageIcon className="size-3" aria-hidden />
+						) : (
+							<Film className="size-3" aria-hidden />
+						)}
+						{m.name}
+					</div>
+					<div className="mt-0.5 text-muted-foreground">
+						{m.updated ? "Actualizado · " : ""}
+						{SOURCE_ES[m.source ?? ""] ?? "Añadido a la biblioteca"}
+					</div>
+					{m.prompt && (
+						<div className="mt-1 line-clamp-2 text-muted-foreground/80 italic">
+							«{m.prompt}»
+						</div>
+					)}
+				</div>
+			</div>
+		);
+	}
+	if (m.type === "stills")
+		return (
+			<div className="rounded-lg border bg-background/60 p-2">
+				<div className="mb-1.5 text-xs text-muted-foreground">
+					Vistas previas de escenas ({m.files.length})
+				</div>
+				<div className="grid grid-cols-4 gap-1.5">
+					{m.files.map((f) => {
+						const src = fileUrl(project, `videos/${video}/stills/${f}`, m.t);
+						return (
+							<button
+								key={f}
+								type="button"
+								onClick={() => onZoom(src)}
+								className="overflow-hidden rounded"
+								title={f.replace(/^t|\.jpg$/g, "") + " s"}
+							>
+								<img
+									src={src}
+									alt=""
+									className="aspect-[9/16] w-full object-cover"
+								/>
+							</button>
+						);
+					})}
+				</div>
+			</div>
+		);
+	if (m.type === "render")
+		return (
+			<div className="max-w-[280px] overflow-hidden rounded-lg border border-accent/40 bg-accent/5">
+				<video
+					src={fileUrl(project, `videos/${video}/${m.file}`, m.t)}
+					controls
+					playsInline
+					className="w-full bg-black"
+					style={{ aspectRatio: "9/16" }}
+				>
+					<track kind="captions" />
+				</video>
+				<div className="px-2.5 py-2 text-xs text-accent">Render listo</div>
+			</div>
+		);
+	return (
+		<div className="rounded-lg border bg-background/60 p-2">
+			<div className="mb-1.5 flex items-center gap-1.5 text-xs text-muted-foreground">
+				<Search className="size-3" aria-hidden /> Resultados de búsqueda (
+				{m.items.length})
+			</div>
+			<div className="flex gap-1.5 overflow-x-auto pb-1">
+				{m.items.map((it) => (
+					<button
+						key={`${it.n}-${it.thumb}`}
+						type="button"
+						onClick={() => onZoom(it.thumb)}
+						className="relative w-20 shrink-0 overflow-hidden rounded"
+						title={`${it.n}. ${it.title}`}
+					>
+						<img
+							src={it.thumb}
+							alt={it.title}
+							loading="lazy"
+							className="aspect-[9/16] w-full object-cover"
+						/>
+						<span className="absolute top-1 left-1 rounded bg-black/70 px-1 text-[10px] text-white">
+							{it.n}
+						</span>
+					</button>
+				))}
+			</div>
+		</div>
+	);
+}
 
 // tiny, safe markdown: **bold** and `code` only
 export const md = (s: string) =>
@@ -48,13 +231,38 @@ export function Activity({
 	const [busy, setBusy] = useState(false);
 	const [error, setError] = useState("");
 	const box = useRef<HTMLDivElement>(null);
+	const [zoom, setZoom] = useState<string | null>(null);
 	const working = status === "working";
 	const n = log.length;
 
+	// stay pinned to the bottom while new events arrive and their media loads, unless the user scrolled up
+	const pinned = useRef(true);
 	// biome-ignore lint/correctness/useExhaustiveDependencies: scroll when new events arrive
 	useEffect(() => {
-		if (box.current) box.current.scrollTop = box.current.scrollHeight;
+		if (box.current && pinned.current)
+			box.current.scrollTop = box.current.scrollHeight;
 	}, [n]);
+	useEffect(() => {
+		const el = box.current;
+		if (!el) return;
+		const onScroll = () => {
+			pinned.current = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
+		};
+		const ro = new ResizeObserver(() => {
+			if (pinned.current) el.scrollTop = el.scrollHeight;
+		});
+		for (const c of Array.from(el.children)) ro.observe(c);
+		const mo = new MutationObserver(() => {
+			for (const c of Array.from(el.children)) ro.observe(c);
+		});
+		mo.observe(el, { childList: true });
+		el.addEventListener("scroll", onScroll);
+		return () => {
+			el.removeEventListener("scroll", onScroll);
+			ro.disconnect();
+			mo.disconnect();
+		};
+	}, []);
 
 	const send = async (e: React.FormEvent) => {
 		e.preventDefault();
@@ -103,6 +311,15 @@ export function Activity({
 							className="ml-8 whitespace-pre-wrap rounded-lg bg-muted px-3 py-2"
 						>
 							{e.x}
+						</div>
+					) : e.k === "media" ? (
+						<div key={e.id}>
+							<MediaEvent
+								project={project}
+								video={video}
+								raw={e.x}
+								onZoom={setZoom}
+							/>
 						</div>
 					) : e.k === "tool" ? (
 						<div
@@ -169,6 +386,21 @@ export function Activity({
 					</button>
 				</div>
 			</form>
+			{zoom && (
+				<button
+					type="button"
+					onClick={() => setZoom(null)}
+					className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 p-6"
+					aria-label="Cerrar"
+				>
+					<img
+						src={zoom}
+						alt=""
+						className="max-h-full max-w-full rounded-lg object-contain"
+					/>
+					<X className="absolute top-5 right-5 size-6 text-white" aria-hidden />
+				</button>
+			)}
 		</aside>
 	);
 }

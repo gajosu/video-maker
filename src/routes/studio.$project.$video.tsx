@@ -148,6 +148,7 @@ function JobPage() {
 							lines={video.lines}
 							notes={video.notes}
 							voices={voices}
+							initialVoice={job.voice ?? ""}
 							plan={plan}
 							projectVoice={projectVoice}
 						/>
@@ -218,18 +219,24 @@ function Review({
 	voices,
 	plan,
 	projectVoice,
+	initialVoice,
 }: {
 	project: string;
 	video: string;
 	lines: string[];
 	notes: string;
 	voices: { id: string; name: string; kind: string }[];
+	initialVoice: string;
 	plan: string;
 	projectVoice: string;
 }) {
 	const router = useRouter();
-	const [voice, setVoice] = useState("");
-	const [library, setLibrary] = useState("");
+	const [voice, setVoice] = useState(
+		initialVoice.includes("/") ? "" : initialVoice,
+	);
+	const [library, setLibrary] = useState(
+		initialVoice.includes("/") ? initialVoice : "",
+	);
 	const [note, setNote] = useState("");
 	const [busy, setBusy] = useState(false);
 	const [error, setError] = useState("");

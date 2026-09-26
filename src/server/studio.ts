@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { createServerFn } from "@tanstack/react-start";
+import { loadManifest } from "../../cli/lib/assets.ts";
 import { listVoices, tier } from "../../cli/lib/elevenlabs.ts";
 import { projectDir } from "../../cli/lib/paths.ts";
 import { listProjects, loadProject, loadVideo } from "../../cli/lib/project.ts";
@@ -105,8 +106,67 @@ export const getStudio = createServerFn({ method: "GET" }).handler(async () => {
 		phase: j.phase,
 		updatedAt: j.updatedAt,
 	}));
-	return { projects, jobs, running: jobs.some((j) => j.status === "working") };
+	const assets: Record<
+		string,
+		{ name: string; kind: string; file: string; description: string }[]
+	> = {};
+	const projectVoices: Record<string, string> = {};
+	for (const p of listProjects()) {
+		projectVoices[p.slug] = p.voice.voiceId;
+		assets[p.slug] = Object.values(loadManifest(p.slug).assets)
+			.filter((a) => a.kind === "image" || a.kind === "video")
+			.map((a) => ({
+				name: a.name,
+				kind: a.kind,
+				file: a.file,
+				description: a.description ?? "",
+			}));
+	}
+	const acct = await accountVoices();
+	return {
+		projects,
+		jobs,
+		running: jobs.some((j) => j.status === "working"),
+		assets,
+		projectVoices,
+		voices: acct.voices.filter(
+			(v) => acct.plan !== "free" || v.kind !== "professional",
+		),
+		plan: acct.plan,
+	};
 });
+
+const MUSIC = ["", "beat", "pulse", "ambient", "pluck", "none"];
+const VOICE = (v: string) => !v || /^\w{8,40}$/.test(v) || /^\w+\/\w+$/.test(v);
+
+/** instructions shared by the build and change runs: chosen assets, Flow budget, music */
+function extras(job: Job): string[] {
+	const out: string[] = [];
+	if (job.assets?.length) {
+		const m = loadManifest(job.project).assets;
+		out.push(
+			`Assets de la biblioteca que el usuario eligió para este video (úsalos, en las escenas que mejor encajen): ${job.assets
+				.map(
+					(n) =>
+						`${n} (${m[n]?.kind ?? "?"}${m[n]?.description ? `: ${m[n]?.description}` : ""})`,
+				)
+				.join("; ")}.`,
+		);
+	}
+	if (job.flow && (job.flow.clips > 0 || job.flow.images > 0))
+		out.push(
+			`Puedes generar con Google Flow vía flowkit (skill vk-assets): hasta ${job.flow.clips} clip(s) de video y ${job.flow.images} imagen(es) nuevas, no más (salvo que el usuario pida más explícitamente en un mensaje). Primero \`bun vk asset flow ${job.project}\`; si no está conectado o Google marca actividad inusual, sigue sin generar y dilo en el resumen. Puedes animar assets elegidos (--from) o usarlos como referencia (--refs).`,
+		);
+	else
+		out.push(
+			`No generes con Google Flow por iniciativa propia en este trabajo. Pero si el mensaje del usuario te pide explícitamente usar Google Flow (o generar un clip o una imagen con IA), hazlo: su pedido manda. Genera solo lo que pide, de a un clip, con flowkit (skill vk-assets; primero \`bun vk asset flow ${job.project}\`), y si no está conectado o Google marca actividad inusual, dilo.`,
+		);
+	if (job.music)
+		out.push(
+			`Música: pon \`music: ${job.music}\` en el front matter de script.md.`,
+		);
+	return out;
+}
 
 export const startJob = createServerFn({ method: "POST" })
 	.validator((d: unknown) => {
@@ -123,7 +183,34 @@ export const startJob = createServerFn({ method: "POST" })
 			Math.min(90, Math.round(Number(o.duration) || 30)),
 		);
 		const style = STYLES.includes(String(o.style)) ? String(o.style) : "punchy";
-		return { project, title, idea, duration, style };
+		const voice = text(o.voice, 200);
+		if (!VOICE(voice))
+			throw new Error(
+				"Voz inválida: usa el ID o el formato owner/id de la página de Voces",
+			);
+		const lib = loadManifest(project).assets;
+		const assets = (Array.isArray(o.assets) ? o.assets : [])
+			.map((a) => text(a, 60))
+			.filter((a) => a && lib[a])
+			.slice(0, 12);
+		const f = obj(o.flow);
+		const clamp6 = (x: unknown) =>
+			Math.max(0, Math.min(6, Math.round(Number(x) || 0)));
+		const flow = { clips: clamp6(f.clips), images: clamp6(f.images) };
+		const music = MUSIC.includes(String(o.music ?? ""))
+			? String(o.music ?? "")
+			: "";
+		return {
+			project,
+			title,
+			idea,
+			duration,
+			style,
+			voice: voice || undefined,
+			assets,
+			flow,
+			music: music || undefined,
+		};
 	})
 	.handler(async ({ data }) => {
 		busy();
@@ -139,7 +226,20 @@ export const startJob = createServerFn({ method: "POST" })
 			updatedAt: now,
 		};
 		saveJob(job);
-		log(data.project, video, "you", `${data.title}\n\n${data.idea}`);
+		const opts = [
+			data.voice ? `voz: ${data.voice}` : "voz: la del proyecto",
+			data.assets.length ? `assets: ${data.assets.join(", ")}` : "",
+			data.flow.clips || data.flow.images
+				? `Google Flow: hasta ${data.flow.clips} clip(s) y ${data.flow.images} imagen(es)`
+				: "",
+			data.music ? `música: ${data.music}` : "",
+		].filter(Boolean);
+		log(
+			data.project,
+			video,
+			"you",
+			`${data.title}\n\n${data.idea}\n\n— ${opts.join(" · ")}`,
+		);
 		const lang = loadProject(data.project).language;
 		run(
 			job,
@@ -152,6 +252,11 @@ export const startJob = createServerFn({ method: "POST" })
 				data.idea,
 				">>>",
 				`Usa solo hechos del knowledge base (\`bun vk kb ${data.project}\`). Si el texto del usuario trae hechos nuevos sobre el producto, agrégalos al knowledge base con fecha y fuente "usuario (interfaz web)".`,
+				...(data.assets.length
+					? [
+							`El usuario eligió estos assets de la biblioteca para el video; planifica el guion pensando en mostrarlos: ${data.assets.join(", ")} (\`bun vk asset list ${data.project}\` muestra qué es cada uno).`,
+						]
+					: []),
 				"No generes la voz, ni assets, ni escenas: el usuario revisará el guion y elegirá la voz en la interfaz antes de seguir.",
 			].join("\n"),
 		);
@@ -223,6 +328,7 @@ export const approveJob = createServerFn({ method: "POST" })
 			[
 				`El usuario aprobó el guion de ${data.project}/${data.video}.${data.note ? ` Además pidió (contenido del usuario): «${data.note}».` : ""}`,
 				voiceStep,
+				...extras(job),
 				`Continúa el skill vk-make desde el paso 2 hasta el render final: voz (\`bun vk voice\`, \`tighten\` si el ritmo es lento), assets, escenas con vk-scenes (revisa stills, composición centrada que llene el lienzo), mezcla y \`bun vk render ${data.project} ${data.video}\`.`,
 				"Al terminar, resume en 3-6 líneas qué muestra cada escena, la duración y cualquier supuesto que tomaste.",
 			].join("\n"),
@@ -256,7 +362,7 @@ export const messageJob = createServerFn({ method: "POST" })
 				resume && !loadVideo(data.project, data.video).files.out
 					? "build"
 					: "change",
-				`Mensaje del usuario sobre ${data.project}/${data.video} (contenido del usuario): «${data.text}».${resume ? " El paso anterior no terminó; retoma desde donde quedó si aplica." : ""}${job.session ? "" : " Es la primera vez que ves este video en esta conversación: lee su script.md, scenes.js (y scenes/ compartidos que use), cues.json y el knowledge base antes de cambiar nada."} Aplícalo: si cambia el guion vuelve a generar la voz y ajusta scenes.js; revisa stills y vuelve a renderizar con \`bun vk render ${data.project} ${data.video}\`.`,
+				`Mensaje del usuario sobre ${data.project}/${data.video} (contenido del usuario): «${data.text}».${resume ? " El paso anterior no terminó; retoma desde donde quedó si aplica." : ""}${job.session ? "" : " Es la primera vez que ves este video en esta conversación: lee su script.md, scenes.js (y scenes/ compartidos que use), cues.json y el knowledge base antes de cambiar nada."} ${extras(job).join(" ")} Aplícalo: si cambia el guion vuelve a generar la voz y ajusta scenes.js; revisa stills y vuelve a renderizar con \`bun vk render ${data.project} ${data.video}\`.`,
 			);
 		}
 		return { ok: true };

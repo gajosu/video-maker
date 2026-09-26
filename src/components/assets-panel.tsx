@@ -1,7 +1,18 @@
 import { useRouter } from "@tanstack/react-router";
-import { ImageIcon, Music, Upload, Video, Volume2 } from "lucide-react";
+import {
+	ImageIcon,
+	Maximize2,
+	Music,
+	Pencil,
+	Plus,
+	Sparkles,
+	Upload,
+	Video,
+	Volume2,
+} from "lucide-react";
 import { useState } from "react";
 import { AssetUpload } from "#/components/asset-upload";
+import { type FlowDraft, FlowPanel } from "#/components/flow-panel";
 import { Cmd, Empty } from "#/components/ui";
 import { fileUrl } from "#/lib/format";
 import { cn } from "#/lib/utils";
@@ -23,9 +34,14 @@ export function AssetsPanel({
 }) {
 	const open = manifest.requests.filter((r) => r.status === "open");
 	const assets = Object.values(manifest.assets);
+	const images = assets.filter((a) => a.kind === "image");
+	const [draft, setDraft] = useState<FlowDraft | null>(null);
+	const act = (d: Omit<FlowDraft, "nonce">) =>
+		setDraft({ ...d, nonce: Date.now() });
 	if (!assets.length && !open.length)
 		return (
 			<div className="space-y-8">
+				<FlowPanel project={project} images={images} draft={draft} />
 				<AssetUpload project={project} />
 				<Empty title="No assets yet">
 					<p>
@@ -42,6 +58,7 @@ export function AssetsPanel({
 		);
 	return (
 		<div className="space-y-8">
+			<FlowPanel project={project} images={images} draft={draft} />
 			<AssetUpload project={project} />
 			{open.length > 0 && (
 				<section>
@@ -78,7 +95,7 @@ export function AssetsPanel({
 							)}
 						>
 							{list.map((a) => (
-								<AssetCard key={a.name} project={project} asset={a} />
+								<AssetCard key={a.name} project={project} asset={a} act={act} />
 							))}
 						</ul>
 					</section>
@@ -132,17 +149,50 @@ function Meta({ a }: { a: Asset }) {
 	);
 }
 
-function AssetCard({ project, asset: a }: { project: string; asset: Asset }) {
+const ACTIONS: [
+	string,
+	typeof Sparkles,
+	(n: string) => Omit<FlowDraft, "nonce">,
+][] = [
+	["Animar", Sparkles, (n) => ({ tab: "video", mode: "frames", from: n })],
+	["Editar", Pencil, (n) => ({ tab: "edit", source: n })],
+	["2K / 4K", Maximize2, (n) => ({ tab: "upscale", source: n })],
+	["Referencia", Plus, (n) => ({ tab: "image", addRef: n })],
+];
+
+function AssetCard({
+	project,
+	asset: a,
+	act,
+}: {
+	project: string;
+	asset: Asset;
+	act: (d: Omit<FlowDraft, "nonce">) => void;
+}) {
 	const url = fileUrl(project, `assets/${a.file}`);
 	if (a.kind === "image" || a.kind === "video")
 		return (
 			<li>
 				<div
 					className={cn(
-						"aspect-[9/16] overflow-hidden rounded-xl border",
+						"group relative aspect-[9/16] overflow-hidden rounded-xl border",
 						a.kind === "image" ? "checker" : "bg-muted",
 					)}
 				>
+					{a.kind === "image" && (
+						<div className="absolute inset-x-0 bottom-0 z-10 grid grid-cols-2 gap-1 bg-gradient-to-t from-black/85 to-transparent p-2 pt-8 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+							{ACTIONS.map(([label, Icon, mk]) => (
+								<button
+									key={label}
+									type="button"
+									onClick={() => act(mk(a.name))}
+									className="inline-flex items-center justify-center gap-1 rounded-md bg-white/15 px-1.5 py-1 text-[11px] font-medium text-white hover:bg-white/25"
+								>
+									<Icon className="size-3" aria-hidden /> {label}
+								</button>
+							))}
+						</div>
+					)}
 					{a.kind === "image" ? (
 						<img
 							src={url}
