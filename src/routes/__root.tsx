@@ -10,6 +10,7 @@ import {
 import { TanStackRouterDevtoolsPanel } from "@tanstack/react-router-devtools";
 import { Clapperboard } from "lucide-react";
 import { useEffect } from "react";
+import { GlobalChat } from "#/components/global-chat";
 import appCss from "../styles.css?url";
 
 export const Route = createRootRoute({
@@ -42,7 +43,12 @@ function useLiveReload() {
 
 function Layout() {
 	useLiveReload();
-	return <Outlet />;
+	return (
+		<>
+			<Outlet />
+			<GlobalChat />
+		</>
+	);
 }
 
 function RootDocument({ children }: { children: React.ReactNode }) {

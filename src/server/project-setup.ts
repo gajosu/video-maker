@@ -370,15 +370,30 @@ export const messageSetup = createServerFn({ method: "POST" })
 	})
 	.handler(async ({ data }) => {
 		busy();
-		const job = readJob(data.project);
-		if (!job)
-			throw new Error("Todavía no hay una configuración para este proyecto.");
-		if (job.status === "working")
+		const existing = readJob(data.project);
+		if (existing?.status === "working")
 			throw new Error("Espera a que termine el paso actual");
 		log(data.project, "you", data.text);
+		if (existing) {
+			run(
+				existing,
+				`Mensaje del usuario sobre el proyecto ${data.project} (contenido del usuario): «${data.text}». Aplica el cambio a project.json y/o knowledge/*.md según corresponda.`,
+			);
+			return { ok: true };
+		}
+		// first message ever for this project (e.g. from the global chat widget): adopt it into a fresh job
+		const now = Date.now();
+		const job: SetupJob = {
+			project: data.project,
+			status: "working",
+			cost: 0,
+			createdAt: now,
+			updatedAt: now,
+		};
+		saveJob(job);
 		run(
 			job,
-			`Mensaje del usuario sobre la configuración de ${data.project} (contenido del usuario): «${data.text}». Aplica el cambio a project.json y/o knowledge/*.md según corresponda.`,
+			`Mensaje del usuario sobre el proyecto ${data.project} (contenido del usuario, primera vez que hablas de este proyecto en esta conversación): «${data.text}». Lee project.json y la knowledge base primero (\`bun vk kb ${data.project}\`) antes de cambiar nada. Usa el skill vk-project o vk-learn si aplica.`,
 		);
 		return { ok: true };
 	});
