@@ -349,9 +349,14 @@ export const approveJob = createServerFn({ method: "POST" })
 
 export const messageJob = createServerFn({ method: "POST" })
 	.validator((d: unknown) => {
-		const msg = text(obj(d).text, 4000);
-		if (!msg) throw new Error("Escribe qué quieres cambiar");
-		return { ...ids(d), text: msg };
+		const o = obj(d);
+		const msg = text(o.text, 4000);
+		const refs = (Array.isArray(o.refs) ? o.refs : [])
+			.map((r) => text(r, 80))
+			.filter((r) => /^[\w.-]+$/.test(r))
+			.slice(0, 8);
+		if (!msg && !refs.length) throw new Error("Escribe qué quieres cambiar");
+		return { ...ids(d), text: msg, refs };
 	})
 	.handler(async ({ data }) => {
 		busy();
@@ -359,12 +364,29 @@ export const messageJob = createServerFn({ method: "POST" })
 			readJob(data.project, data.video) ?? adoptVideo(data.project, data.video);
 		if (job.status === "working")
 			throw new Error("Espera a que termine el paso actual");
-		log(data.project, data.video, "you", data.text);
+		log(data.project, data.video, "you", data.text || "(archivo adjunto)");
+		for (const r of data.refs)
+			log(
+				data.project,
+				data.video,
+				"media",
+				JSON.stringify({
+					type: "asset",
+					name: r,
+					kind: "image",
+					file: `refs/${r}`,
+					source: "upload",
+					t: Date.now(),
+				}),
+			);
+		const attach = data.refs.length
+			? ` El usuario adjuntó estos archivos en el chat, léelos con Read antes de aplicar el cambio: ${data.refs.map((r) => `projects/${data.project}/assets/refs/${r}`).join(", ")}.`
+			: "";
 		if (job.status === "review") {
 			run(
 				job,
 				"script-changes",
-				`El usuario pide cambios al guion (contenido del usuario): «${data.text}». Actualiza solo script.md; sigue sin generar voz ni escenas.`,
+				`El usuario pide cambios al guion (contenido del usuario): «${data.text}».${attach} Actualiza solo script.md; sigue sin generar voz ni escenas.`,
 			);
 		} else {
 			const resume = job.status === "error" || job.status === "cancelled";
@@ -373,7 +395,7 @@ export const messageJob = createServerFn({ method: "POST" })
 				resume && !loadVideo(data.project, data.video).files.out
 					? "build"
 					: "change",
-				`Mensaje del usuario sobre ${data.project}/${data.video} (contenido del usuario): «${data.text}».${resume ? " El paso anterior no terminó; retoma desde donde quedó si aplica." : ""}${job.session ? "" : " Es la primera vez que ves este video en esta conversación: lee su script.md, scenes.js (y scenes/ compartidos que use), cues.json y el knowledge base antes de cambiar nada."} ${extras(job).join(" ")} Aplícalo: si cambia el guion vuelve a generar la voz y ajusta scenes.js; revisa stills y vuelve a renderizar con \`bun vk render ${data.project} ${data.video}\`.`,
+				`Mensaje del usuario sobre ${data.project}/${data.video} (contenido del usuario): «${data.text}».${resume ? " El paso anterior no terminó; retoma desde donde quedó si aplica." : ""}${job.session ? "" : " Es la primera vez que ves este video en esta conversación: lee su script.md, scenes.js (y scenes/ compartidos que use), cues.json y el knowledge base antes de cambiar nada."}${attach} ${extras(job).join(" ")} Aplícalo: si cambia el guion vuelve a generar la voz y ajusta scenes.js; revisa stills y vuelve a renderizar con \`bun vk render ${data.project} ${data.video}\`.`,
 			);
 		}
 		return { ok: true };

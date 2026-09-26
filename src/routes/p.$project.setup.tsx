@@ -241,7 +241,9 @@ function ProjectSetup() {
 						project={project}
 						log={d.log}
 						status={d.status}
-						onSend={(text) => messageSetup({ data: { project, text } })}
+						onSend={(text, refs) =>
+							messageSetup({ data: { project, text, refs } })
+						}
 						onSent={reload}
 						className="h-[calc(100dvh-16rem)]"
 						placeholder={

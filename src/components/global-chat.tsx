@@ -132,10 +132,10 @@ export function GlobalChat() {
 							video={video}
 							log={d?.log ?? []}
 							status={d?.status ?? ""}
-							onSend={(text) =>
+							onSend={(text, refs) =>
 								mode === "video"
-									? messageJob({ data: { project, video, text } })
-									: messageSetup({ data: { project, text } })
+									? messageJob({ data: { project, video, text, refs } })
+									: messageSetup({ data: { project, text, refs } })
 							}
 							onSent={load}
 							className="h-auto flex-1 lg:static"

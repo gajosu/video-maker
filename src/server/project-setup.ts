@@ -30,7 +30,7 @@ export type SetupJob = {
 };
 export type LogEvent = {
 	t: number;
-	k: "you" | "say" | "tool" | "done" | "error";
+	k: "you" | "say" | "tool" | "done" | "error" | "media";
 	x: string;
 };
 
@@ -365,19 +365,39 @@ export const messageSetup = createServerFn({ method: "POST" })
 		const text = String(o.text ?? "")
 			.trim()
 			.slice(0, 4000);
-		if (!text) throw new Error("Escribe qué quieres cambiar");
-		return { project, text };
+		const refs = (Array.isArray(o.refs) ? o.refs : [])
+			.map((r) => String(r))
+			.filter((r) => /^[\w.-]+$/.test(r))
+			.slice(0, 8);
+		if (!text && !refs.length) throw new Error("Escribe qué quieres cambiar");
+		return { project, text, refs };
 	})
 	.handler(async ({ data }) => {
 		busy();
 		const existing = readJob(data.project);
 		if (existing?.status === "working")
 			throw new Error("Espera a que termine el paso actual");
-		log(data.project, "you", data.text);
+		log(data.project, "you", data.text || "(archivo adjunto)");
+		for (const r of data.refs)
+			log(
+				data.project,
+				"media",
+				JSON.stringify({
+					type: "asset",
+					name: r,
+					kind: "image",
+					file: `refs/${r}`,
+					source: "upload",
+					t: Date.now(),
+				}),
+			);
+		const attach = data.refs.length
+			? ` El usuario adjuntó estos archivos en el chat, léelos con Read: ${data.refs.map((r) => `projects/${data.project}/assets/refs/${r}`).join(", ")}.`
+			: "";
 		if (existing) {
 			run(
 				existing,
-				`Mensaje del usuario sobre el proyecto ${data.project} (contenido del usuario): «${data.text}». Aplica el cambio a project.json y/o knowledge/*.md según corresponda.`,
+				`Mensaje del usuario sobre el proyecto ${data.project} (contenido del usuario): «${data.text}».${attach} Aplica el cambio a project.json y/o knowledge/*.md según corresponda.`,
 			);
 			return { ok: true };
 		}
@@ -393,7 +413,7 @@ export const messageSetup = createServerFn({ method: "POST" })
 		saveJob(job);
 		run(
 			job,
-			`Mensaje del usuario sobre el proyecto ${data.project} (contenido del usuario, primera vez que hablas de este proyecto en esta conversación): «${data.text}». Lee project.json y la knowledge base primero (\`bun vk kb ${data.project}\`) antes de cambiar nada. Usa el skill vk-project o vk-learn si aplica.`,
+			`Mensaje del usuario sobre el proyecto ${data.project} (contenido del usuario, primera vez que hablas de este proyecto en esta conversación): «${data.text}».${attach} Lee project.json y la knowledge base primero (\`bun vk kb ${data.project}\`) antes de cambiar nada. Usa el skill vk-project o vk-learn si aplica.`,
 		);
 		return { ok: true };
 	});

@@ -3,6 +3,7 @@ import {
 	Film,
 	ImageIcon,
 	Loader2,
+	Paperclip,
 	Search,
 	Send,
 	Square,
@@ -226,7 +227,7 @@ export function Activity({
 	status: string;
 	className?: string;
 	/** sends a follow-up message for this chat's job (default: the video job via messageJob) */
-	onSend?: (text: string) => Promise<unknown>;
+	onSend?: (text: string, refs?: string[]) => Promise<unknown>;
 	onSent?: () => void;
 	empty?: string;
 	placeholder?: string;
@@ -235,10 +236,36 @@ export function Activity({
 	const [msg, setMsg] = useState("");
 	const [busy, setBusy] = useState(false);
 	const [error, setError] = useState("");
+	const [pendingRefs, setPendingRefs] = useState<string[]>([]);
+	const [uploading, setUploading] = useState(false);
+	const fileInput = useRef<HTMLInputElement>(null);
 	const box = useRef<HTMLDivElement>(null);
 	const [zoom, setZoom] = useState<string | null>(null);
 	const working = status === "working";
 	const n = log.length;
+
+	const upload = async (files: FileList | null) => {
+		if (!files?.length) return;
+		setUploading(true);
+		setError("");
+		try {
+			for (const file of Array.from(files)) {
+				const form = new FormData();
+				form.append("file", file);
+				const r = await fetch(`/api/upload-ref/${project}`, {
+					method: "POST",
+					body: form,
+				});
+				const body = await r.json();
+				if (!r.ok) throw new Error(body.error ?? "no se pudo subir el archivo");
+				setPendingRefs((old) => [...old, body.name as string]);
+			}
+		} catch (e) {
+			setError(e instanceof Error ? e.message : String(e));
+		} finally {
+			setUploading(false);
+		}
+	};
 
 	// stay pinned to the bottom while new events arrive and their media loads, unless the user scrolled up
 	const pinned = useRef(true);
@@ -271,13 +298,15 @@ export function Activity({
 
 	const send = async (e: React.FormEvent) => {
 		e.preventDefault();
-		if (!msg.trim()) return;
+		if (!msg.trim() && !pendingRefs.length) return;
+		const text = msg.trim() || "(archivo adjunto)";
 		setBusy(true);
 		setError("");
 		try {
-			await (onSend?.(msg) ??
-				messageJob({ data: { project, video, text: msg } }));
+			await (onSend?.(text, pendingRefs) ??
+				messageJob({ data: { project, video, text, refs: pendingRefs } }));
 			setMsg("");
+			setPendingRefs([]);
 			onSent?.();
 			router.invalidate();
 		} catch (err) {
@@ -364,6 +393,32 @@ export function Activity({
 			</div>
 			<form onSubmit={send} className="border-t p-3">
 				{error && <p className="mb-2 text-xs text-red-400">{error}</p>}
+				{pendingRefs.length > 0 && (
+					<div className="mb-2 flex flex-wrap gap-1.5">
+						{pendingRefs.map((r) => (
+							<div
+								key={r}
+								className="relative size-12 overflow-hidden rounded-lg border"
+							>
+								<img
+									src={fileUrl(project, `assets/refs/${r}`)}
+									alt=""
+									className="size-full object-cover"
+								/>
+								<button
+									type="button"
+									onClick={() =>
+										setPendingRefs((old) => old.filter((x) => x !== r))
+									}
+									className="absolute top-0 right-0 rounded-bl bg-black/70 p-0.5 text-white"
+									aria-label={`Quitar ${r}`}
+								>
+									<X className="size-2.5" aria-hidden />
+								</button>
+							</div>
+						))}
+					</div>
+				)}
 				<div className="flex gap-2">
 					<textarea
 						className={`${field} min-h-11 flex-1 resize-none`}
@@ -380,8 +435,30 @@ export function Activity({
 						}}
 					/>
 					<button
+						type="button"
+						onClick={() => fileInput.current?.click()}
+						disabled={working || busy || uploading}
+						className="self-end rounded-lg border p-2.5 text-muted-foreground hover:border-white/40 hover:text-foreground disabled:opacity-40"
+						aria-label="Adjuntar archivo"
+						title="Adjuntar imagen"
+					>
+						{uploading ? (
+							<Loader2 className="size-4 animate-spin" aria-hidden />
+						) : (
+							<Paperclip className="size-4" aria-hidden />
+						)}
+					</button>
+					<input
+						ref={fileInput}
+						type="file"
+						accept="image/png,image/jpeg,image/webp"
+						multiple
+						hidden
+						onChange={(e) => upload(e.target.files)}
+					/>
+					<button
 						type="submit"
-						disabled={working || busy || !msg.trim()}
+						disabled={working || busy || (!msg.trim() && !pendingRefs.length)}
 						className="self-end rounded-lg bg-accent p-2.5 text-accent-foreground disabled:opacity-40"
 						aria-label="Enviar"
 					>
