@@ -13,7 +13,9 @@
     "format": "biome format",
     "lint": "biome lint",
     "check": "biome check",
-    "vk": "bun cli/index.ts"
+    "vk": "bun cli/index.ts",
+    "setup": "bash scripts/setup.sh",
+    "flowkit": "bash tools/start-flowkit.sh"
   },
   "dependencies": {
     "@fontsource/commissioner": "^5.3.0",

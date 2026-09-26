@@ -66,7 +66,13 @@ function vkWatch(): Plugin {
 const config = defineConfig({
 	resolve: { tsconfigPaths: true },
 	server: {
-		watch: { ignored: ["**/videos/*/build/**", "**/foni-video-kit/**"] },
+		watch: {
+			ignored: [
+				"**/videos/*/build/**",
+				"**/foni-video-kit/**",
+				"**/tools/flowkit/**",
+			],
+		},
 	},
 	plugins: [
 		devtools(),

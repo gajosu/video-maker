@@ -367,9 +367,9 @@ export function FlowPanel({
 				<p className="mt-3 rounded-lg border border-amber-300/30 bg-amber-300/10 p-3 text-xs text-amber-100">
 					{!status.running ? (
 						<>
-							Arranca flowkit en una terminal de WSL:{" "}
+							Arranca flowkit en una terminal, dentro de la carpeta del proyecto:{" "}
 							<code className="font-mono">
-								~/tools/flowkit/start-flowkit.sh
+								bun run flowkit
 							</code>
 						</>
 					) : !status.connected ? (

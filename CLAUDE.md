@@ -13,10 +13,12 @@ Punchy vertical videos (Reels/TikTok/Shorts) from a script: ElevenLabs voice →
 - Assets tab: "Crear con Google Flow" panel (`src/components/flow-panel.tsx`, `src/server/flow.ts`) generates images/videos, edits and upscales through flowkit, with card actions (animar, editar, 2K, referencia).
 - `/voices` (`src/server/voices.ts`): browse the public ElevenLabs library (Latin American Spanish), previews, test a voice with your text (paid plans only).
 - `/studio` (`src/server/studio.ts`, `studio-runner.ts`): "Nuevo video" form that runs Claude Code headless (`claude -p`, stream-json, restricted `--allowedTools`) through vk-make with two checkpoints (script approval + voice) and a change-request chat. Job state/log in `projects/<p>/jobs/<video>/`. One job at a time; localhost only. The video preview page has a Chat tab (`src/components/studio-chat.tsx`) that edits any video the same way (terminal-made videos get a job record on first message).
+- `tools/flowkit/`: flowkit clone + venv (gitignored, pinned in `scripts/setup.sh`); `tools/start-flowkit.sh` reads `FLOW_PROJECT_ID` from `.env`.
 - `.claude/skills/`: `vk-project`, `vk-learn`, `vk-script`, `vk-assets`, `vk-scenes`, `vk-make`.
 
 ## Commands
 - `bun vk help`, then `list`, `init`, `new`, `kb`, `voices`, `voice`, `cues`, `tighten`, `check`, `styles`, `asset …`, `music` (Sonic Pi), `mix`, `stills`, `render`
+- `bun run setup` (new machine: tools check, deps, Chromium, .env, flowkit in `tools/flowkit/`), `bun run flowkit` (start the Google Flow agent)
 - `bun run dev` (preview on :3000, hot-reloads on project changes), `bunx tsc --noEmit`, `bun run check` (Biome)
 
 ## Rules

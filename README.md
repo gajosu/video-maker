@@ -26,11 +26,35 @@ scenes.js ──► page (engine + brand) ────┼──► bun vk stills
 ## Setup
 
 ```bash
-bun install
-bunx playwright install chromium
-cp .env.example .env          # add ELEVENLABS_API_KEY
+bun run setup                 # checks tools, installs deps + Chromium, creates .env, installs flowkit (safe to re-run)
+# fill .env: ELEVENLABS_API_KEY (voice), optional PEXELS_API_KEY / OPENAI_API_KEY / FLOW_PROJECT_ID
 bun run dev                   # preview at http://localhost:3000
 ```
+
+### On a new machine
+
+Copying the folder is not enough: system tools, the Python venv (absolute paths) and your `.env` keys do not travel.
+Clone instead and let the setup script rebuild everything:
+
+1. **Windows only:** install WSL (`wsl --install` in PowerShell as admin, reboot, open Ubuntu) and work inside it.
+2. System packages: `sudo apt-get install -y git ffmpeg python3 python3-venv unzip`, then Bun: `curl -fsSL https://bun.sh/install | bash`.
+3. Claude Code (skills, the web "Nuevo video" page and chat): install it and run `claude` once to sign in.
+4. `git clone git@github.com:gajosu/video-maker.git && cd video-maker && bun run setup`
+5. If it warns that Chromium does not start: `sudo bunx playwright install-deps chromium`, then `bun run setup` again.
+6. Copy your `.env` values by hand (never commit them). Projects are private and gitignored: copy `projects/<slug>/` over, or set `VK_PROJECTS_DIR`.
+
+To get new changes from the original project: `git fetch upstream && git merge upstream/main`.
+
+### Google Flow (optional)
+
+AI video (Omni Flash / Veo) and images (Nano Banana) through your own Flow account, via [flowkit](https://github.com/crisng95/flowkit).
+`bun run setup` installs it in `tools/flowkit/` (gitignored, pinned to a reviewed commit) and, on WSL, copies its Chrome extension to `C:\Users\<you>\flowkit-extension`.
+
+1. Chrome → `chrome://extensions` → Developer mode → Load unpacked → that folder ("Flow Kit").
+2. Open https://flow.google.com signed in, open a project, put its uuid (from the URL) in `.env` as `FLOW_PROJECT_ID`.
+3. `bun run flowkit` and keep it running. Then use the **Assets** tab ("Crear con Google Flow"), the "Nuevo video" page, or `bun vk asset gen … --kind video` / `--via flow`, `asset edit`, `asset upscale`.
+
+flowkit bypasses Flow's anti-automation checks on your account; Google may change them (it stops working) or restrict the account. Generate one thing at a time.
 
 ## Quick start
 

@@ -15,7 +15,7 @@ export const FLOW_IMAGE_MODELS: Record<string, string> = { pro: "GEM_PIX_2", nb2
 const IMAGE_ASPECTS: Record<string, string> = { portrait: "9:16", landscape: "16:9", square: "1:1", "9:16": "9:16", "16:9": "16:9", "1:1": "1:1", "3:4": "3:4", "4:3": "4:3" };
 
 const base = () => (process.env.FLOWKIT_URL || "http://127.0.0.1:8100").replace(/\/+$/, "");
-const SETUP = 'Start flowkit (~/tools/flowkit/start-flowkit.sh), load its "Flow Kit" extension in Chrome and keep https://flow.google.com open and signed in.';
+const SETUP = 'Start flowkit (bun run flowkit), load its "Flow Kit" extension in Chrome and keep https://flow.google.com open and signed in.';
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 async function call(path: string, body?: unknown, raw = false) {
