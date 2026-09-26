@@ -40,3 +40,6 @@ projects/_example/assets/music/
 *.wav
 playwright-report/
 test-results/
+
+# flowkit (Google Flow agent), installed by `bun run setup`: third-party code, its venv and session data stay local
+tools/flowkit/
