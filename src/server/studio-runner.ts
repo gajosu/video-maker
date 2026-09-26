@@ -31,6 +31,8 @@ export type Job = {
 	voice?: string;
 	/** library assets the user picked for this video */
 	assets?: string[];
+	/** reference files the user uploaded when creating this video (assets/refs/<name>) */
+	refs?: string[];
 	/** Google Flow generation budget (0 = not allowed) */
 	flow?: { clips: number; images: number };
 	/** music preset override ("" = the style's default) */

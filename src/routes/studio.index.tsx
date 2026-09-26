@@ -1,6 +1,6 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { Check, Loader2, Sparkles } from "lucide-react";
-import { useEffect, useState } from "react";
+import { Check, ImagePlus, Loader2, Sparkles, X } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 import { fileUrl, fmtAgo } from "#/lib/format";
 import { STATUS_ES } from "#/lib/studio";
 import { cn } from "#/lib/utils";
@@ -48,6 +48,9 @@ function Studio() {
 	const [libVoice, setLibVoice] = useState("");
 	const [music, setMusic] = useState("");
 	const [picked, setPicked] = useState<string[]>([]);
+	const [refs, setRefs] = useState<string[]>([]);
+	const [uploading, setUploading] = useState(false);
+	const fileInput = useRef<HTMLInputElement>(null);
 	const [flowOn, setFlowOn] = useState(false);
 	const [clips, setClips] = useState(2);
 	const [images, setImages] = useState(0);
@@ -67,7 +70,33 @@ function Studio() {
 	}, []);
 	// assets belong to one project
 	// biome-ignore lint/correctness/useExhaustiveDependencies: reset when the project changes
-	useEffect(() => setPicked([]), [project]);
+	useEffect(() => {
+		setPicked([]);
+		setRefs([]);
+	}, [project]);
+
+	const upload = async (files: FileList | null) => {
+		if (!files?.length) return;
+		setUploading(true);
+		setError("");
+		try {
+			for (const file of Array.from(files)) {
+				const form = new FormData();
+				form.append("file", file);
+				const r = await fetch(`/api/upload-ref/${project}`, {
+					method: "POST",
+					body: form,
+				});
+				const body = await r.json();
+				if (!r.ok) throw new Error(body.error ?? "no se pudo subir la imagen");
+				setRefs((old) => [...old, body.name as string]);
+			}
+		} catch (e) {
+			setError(e instanceof Error ? e.message : String(e));
+		} finally {
+			setUploading(false);
+		}
+	};
 
 	const submit = async (e: React.FormEvent) => {
 		e.preventDefault();
@@ -84,6 +113,7 @@ function Studio() {
 					voice: libId || voice,
 					music,
 					assets: picked,
+					refs,
 					flow: flowOn ? { clips, images } : { clips: 0, images: 0 },
 				},
 			});
@@ -166,7 +196,7 @@ function Studio() {
 						<textarea
 							className={`${field} min-h-56 leading-relaxed`}
 							value={idea}
-							maxLength={8000}
+							maxLength={40000}
 							onChange={(e) => setIdea(e.target.value)}
 							placeholder="Qué quieres contar, a quién, qué debe hacer al final (CTA). También puedes pegar un guion completo."
 						/>
@@ -282,6 +312,58 @@ function Studio() {
 								})}
 							</div>
 						)}
+					</div>
+
+					<div className="grid gap-1.5 text-sm">
+						<span className="font-medium">
+							Subir archivos de referencia{" "}
+							<span className="font-normal text-muted-foreground">
+								(logo, capturas, fotos — opcional)
+							</span>
+						</span>
+						<div className="flex flex-wrap gap-2">
+							{refs.map((r) => (
+								<div
+									key={r}
+									className="relative size-20 overflow-hidden rounded-lg border"
+								>
+									<img
+										src={fileUrl(project, `assets/refs/${r}`)}
+										alt=""
+										className="size-full object-cover"
+									/>
+									<button
+										type="button"
+										onClick={() => setRefs((old) => old.filter((x) => x !== r))}
+										className="absolute top-0.5 right-0.5 rounded-full bg-black/70 p-0.5 text-white"
+										aria-label={`Quitar ${r}`}
+									>
+										<X className="size-3" aria-hidden />
+									</button>
+								</div>
+							))}
+							<button
+								type="button"
+								onClick={() => fileInput.current?.click()}
+								disabled={uploading}
+								className="flex size-20 flex-col items-center justify-center gap-1 rounded-lg border border-dashed text-xs text-muted-foreground hover:border-white/40 disabled:opacity-50"
+							>
+								{uploading ? (
+									<Loader2 className="size-4 animate-spin" aria-hidden />
+								) : (
+									<ImagePlus className="size-4" aria-hidden />
+								)}
+								Subir
+							</button>
+							<input
+								ref={fileInput}
+								type="file"
+								accept="image/png,image/jpeg,image/webp"
+								multiple
+								hidden
+								onChange={(e) => upload(e.target.files)}
+							/>
+						</div>
 					</div>
 
 					<div className="grid gap-3 rounded-lg border bg-background/40 p-4 text-sm">

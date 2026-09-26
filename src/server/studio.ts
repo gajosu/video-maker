@@ -175,7 +175,7 @@ export const startJob = createServerFn({ method: "POST" })
 		if (!SLUG.test(project) || !projectSlugs().includes(project))
 			throw new Error("Elige un proyecto");
 		const title = text(o.title, 80);
-		const idea = text(o.idea, 8000);
+		const idea = text(o.idea, 40000);
 		if (!title) throw new Error("Ponle un título");
 		if (idea.length < 10) throw new Error("Describe la idea o pega el guion");
 		const duration = Math.max(
@@ -200,6 +200,10 @@ export const startJob = createServerFn({ method: "POST" })
 		const music = MUSIC.includes(String(o.music ?? ""))
 			? String(o.music ?? "")
 			: "";
+		const refs = (Array.isArray(o.refs) ? o.refs : [])
+			.map((r) => text(r, 80))
+			.filter((r) => /^[\w.-]+$/.test(r))
+			.slice(0, 8);
 		return {
 			project,
 			title,
@@ -210,6 +214,7 @@ export const startJob = createServerFn({ method: "POST" })
 			assets,
 			flow,
 			music: music || undefined,
+			refs,
 		};
 	})
 	.handler(async ({ data }) => {
@@ -233,6 +238,7 @@ export const startJob = createServerFn({ method: "POST" })
 				? `Google Flow: hasta ${data.flow.clips} clip(s) y ${data.flow.images} imagen(es)`
 				: "",
 			data.music ? `música: ${data.music}` : "",
+			data.refs.length ? `archivos de referencia: ${data.refs.join(", ")}` : "",
 		].filter(Boolean);
 		log(
 			data.project,
@@ -255,6 +261,11 @@ export const startJob = createServerFn({ method: "POST" })
 				...(data.assets.length
 					? [
 							`El usuario eligió estos assets de la biblioteca para el video; planifica el guion pensando en mostrarlos: ${data.assets.join(", ")} (\`bun vk asset list ${data.project}\` muestra qué es cada uno).`,
+						]
+					: []),
+				...(data.refs.length
+					? [
+							`El usuario subió estas imágenes de referencia (léelas con Read antes de planificar): ${data.refs.map((r) => `projects/${data.project}/assets/refs/${r}`).join(", ")}. Si aportan al video (un producto, un logo, una captura real), regístralas como asset (\`bun vk asset add\`) para poder usarlas en las escenas.`,
 						]
 					: []),
 				"No generes la voz, ni assets, ni escenas: el usuario revisará el guion y elegirá la voz en la interfaz antes de seguir.",
