@@ -1,19 +1,21 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import {
 	AlertTriangle,
 	ChevronLeft,
+	Loader2,
 	Moon,
 	Pause,
 	Play,
 	SkipBack,
 	Sun,
+	Trash2,
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { VideoChat } from "#/components/studio-chat";
 import { Cmd, Empty, StatusBadge } from "#/components/ui";
 import { fileUrl, fmtTime } from "#/lib/format";
 import { cn } from "#/lib/utils";
-import { getVideo } from "#/server/vk";
+import { deleteVideo, getVideo } from "#/server/vk";
 
 export const Route = createFileRoute("/p/$project/v/$video")({
 	loader: ({ params }) =>
@@ -313,6 +315,7 @@ function VideoPage() {
 					<span className="rounded-full border px-2 py-0.5 text-xs text-muted-foreground">
 						style: {video.style}
 					</span>
+					<DeleteVideoButton project={p} video={video.slug} />
 				</div>
 				<p className="mt-1 font-mono text-xs text-muted-foreground">
 					projects/{p}/{base}
@@ -597,6 +600,84 @@ function ScriptPanel(props: {
 					</pre>
 				</details>
 			)}
+		</div>
+	);
+}
+
+function DeleteVideoButton({
+	project,
+	video,
+}: {
+	project: string;
+	video: string;
+}) {
+	const navigate = useNavigate();
+	const [open, setOpen] = useState(false);
+	const [confirm, setConfirm] = useState("");
+	const [busy, setBusy] = useState(false);
+	const [error, setError] = useState("");
+
+	const remove = async () => {
+		setBusy(true);
+		setError("");
+		try {
+			await deleteVideo({ data: { project, video, confirm } });
+			await navigate({ to: "/p/$project", params: { project } });
+		} catch (err) {
+			setError(err instanceof Error ? err.message : String(err));
+			setBusy(false);
+		}
+	};
+
+	if (!open)
+		return (
+			<button
+				type="button"
+				onClick={() => setOpen(true)}
+				className="ml-auto inline-flex items-center gap-1.5 rounded-full border border-red-400/30 px-2 py-0.5 text-xs text-red-300 hover:bg-red-400/10"
+				title="Eliminar este video"
+			>
+				<Trash2 className="size-3" aria-hidden /> Eliminar
+			</button>
+		);
+
+	return (
+		<div className="ml-auto flex flex-wrap items-center gap-2 rounded-lg border border-red-400/30 bg-red-400/5 px-2.5 py-1.5">
+			<span className="text-xs text-muted-foreground">
+				Escribe <Cmd>{video}</Cmd> para confirmar:
+			</span>
+			<input
+				className="w-32 rounded-md border bg-card px-2 py-1 text-xs outline-none focus:border-red-400/60"
+				value={confirm}
+				onChange={(e) => setConfirm(e.target.value)}
+				placeholder={video}
+			/>
+			<button
+				type="button"
+				onClick={remove}
+				disabled={busy || confirm !== video}
+				className="inline-flex items-center gap-1 rounded-md bg-red-500 px-2 py-1 text-xs font-semibold text-white disabled:opacity-40"
+			>
+				{busy ? (
+					<Loader2 className="size-3 animate-spin" aria-hidden />
+				) : (
+					<Trash2 className="size-3" aria-hidden />
+				)}
+				Eliminar
+			</button>
+			<button
+				type="button"
+				onClick={() => {
+					setOpen(false);
+					setConfirm("");
+					setError("");
+				}}
+				disabled={busy}
+				className="text-xs text-muted-foreground hover:text-foreground"
+			>
+				Cancelar
+			</button>
+			{error && <p className="w-full text-xs text-red-400">{error}</p>}
 		</div>
 	);
 }

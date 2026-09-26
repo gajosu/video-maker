@@ -11,7 +11,7 @@ import { join } from "node:path";
 import { createServerFn } from "@tanstack/react-start";
 import { marked } from "marked";
 import { loadManifest } from "../../cli/lib/assets.ts";
-import { PROJECTS_DIR, projectDir } from "../../cli/lib/paths.ts";
+import { PROJECTS_DIR, projectDir, videoDir } from "../../cli/lib/paths.ts";
 import {
 	listProjects,
 	listVideos,
@@ -157,5 +157,42 @@ export const deleteProject = createServerFn({ method: "POST" })
 				"Hay un video o una configuración en proceso para este proyecto. Espera a que termine o cancélalo antes de eliminarlo.",
 			);
 		rmSync(dir, { recursive: true, force: true });
+		return { ok: true };
+	});
+
+function videoJobRunning(project: string, video: string): boolean {
+	const f = join(projectDir(project), "jobs", video, "job.json");
+	if (!existsSync(f)) return false;
+	try {
+		return JSON.parse(readFileSync(f, "utf8")).status === "working";
+	} catch {
+		return false;
+	}
+}
+
+/** irreversible: deletes projects/<p>/videos/<v> (and its job/chat history). Requires typing the video's slug to confirm. */
+export const deleteVideo = createServerFn({ method: "POST" })
+	.validator((d: unknown) => {
+		const o = (d ?? {}) as Record<string, unknown>;
+		const project = String(o.project ?? "");
+		const video = String(o.video ?? "");
+		if (!/^[\w-]+$/.test(project) || !/^[\w-]+$/.test(video))
+			throw new Error("invalid");
+		return { project, video, confirm: String(o.confirm ?? "") };
+	})
+	.handler(async ({ data }) => {
+		const dir = videoDir(data.project, data.video);
+		if (!existsSync(dir)) throw new Error(`no existe el video "${data.video}"`);
+		if (data.confirm !== data.video)
+			throw new Error("Escribe el nombre del video para confirmar");
+		if (videoJobRunning(data.project, data.video))
+			throw new Error(
+				"Hay un trabajo en proceso para este video. Espera a que termine o cancélalo antes de eliminarlo.",
+			);
+		rmSync(dir, { recursive: true, force: true });
+		rmSync(join(projectDir(data.project), "jobs", data.video), {
+			recursive: true,
+			force: true,
+		});
 		return { ok: true };
 	});
