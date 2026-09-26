@@ -266,11 +266,13 @@ function BrandPanel() {
 					<dt className="text-muted-foreground">Language</dt>
 					<dd>{project.language}</dd>
 				</dl>
-				{!project.voice.voiceId && (
-					<p className="mt-4 text-sm text-muted-foreground">
-						Pick one with <Cmd>bun vk voices</Cmd>
-					</p>
-				)}
+				<Link
+					to="/voices"
+					search={{ project: project.slug }}
+					className="mt-4 inline-block text-sm font-medium text-accent hover:underline"
+				>
+					{project.voice.voiceId ? "Change voice" : "Pick a voice →"}
+				</Link>
 			</section>
 			<p className="text-sm text-muted-foreground lg:col-span-3">
 				Edit <Cmd>projects/{project.slug}/project.json</Cmd> to change any of

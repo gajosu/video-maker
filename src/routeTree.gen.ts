@@ -10,6 +10,7 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as NewRouteImport } from './routes/new'
 import { Route as VoicesRouteImport } from './routes/voices'
 import { Route as StudioIndexRouteImport } from './routes/studio.index'
 import { Route as ApiAssetSplatRouteImport } from './routes/api/asset.$'
@@ -24,6 +25,11 @@ import { Route as PProjectVVideoRouteImport } from './routes/p.$project.v.$video
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const NewRoute = NewRouteImport.update({
+  id: '/new',
+  path: '/new',
   getParentRoute: () => rootRouteImport,
 } as any)
 const VoicesRoute = VoicesRouteImport.update({
@@ -79,6 +85,7 @@ const PProjectVVideoRoute = PProjectVVideoRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/new': typeof NewRoute
   '/voices': typeof VoicesRoute
   '/studio/': typeof StudioIndexRoute
   '/api/asset/$': typeof ApiAssetSplatRoute
@@ -92,6 +99,7 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/new': typeof NewRoute
   '/voices': typeof VoicesRoute
   '/studio': typeof StudioIndexRoute
   '/api/asset/$': typeof ApiAssetSplatRoute
@@ -106,6 +114,7 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/new': typeof NewRoute
   '/voices': typeof VoicesRoute
   '/studio/': typeof StudioIndexRoute
   '/api/asset/$': typeof ApiAssetSplatRoute
@@ -121,6 +130,7 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/new'
     | '/voices'
     | '/studio/'
     | '/api/asset/$'
@@ -134,6 +144,7 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/new'
     | '/voices'
     | '/studio'
     | '/api/asset/$'
@@ -147,6 +158,7 @@ export interface FileRouteTypes {
   id:
     | '__root__'
     | '/'
+    | '/new'
     | '/voices'
     | '/studio/'
     | '/api/asset/$'
@@ -161,6 +173,7 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  NewRoute: typeof NewRoute
   VoicesRoute: typeof VoicesRoute
   StudioIndexRoute: typeof StudioIndexRoute
   ApiAssetSplatRoute: typeof ApiAssetSplatRoute
@@ -180,6 +193,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/new': {
+      id: '/new'
+      path: '/new'
+      fullPath: '/new'
+      preLoaderRoute: typeof NewRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/voices': {
@@ -257,6 +277,7 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  NewRoute: NewRoute,
   VoicesRoute: VoicesRoute,
   StudioIndexRoute: StudioIndexRoute,
   ApiAssetSplatRoute: ApiAssetSplatRoute,

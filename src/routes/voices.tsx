@@ -1,20 +1,26 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { Check, Copy, Loader2, Play, Search } from "lucide-react";
+import { Check, Copy, Loader2, Play, Search, Sparkles } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Empty } from "#/components/ui";
+import { getProjects } from "#/server/vk";
 import {
 	getSampleLines,
 	getVoices,
 	sampleVoice,
+	setProjectVoice,
 	type VoiceCard,
 } from "#/server/voices";
 
 export const Route = createFileRoute("/voices")({
+	validateSearch: (s: Record<string, unknown>): { project?: string } => ({
+		project: typeof s.project === "string" ? s.project : undefined,
+	}),
 	loader: async () => ({
 		first: await getVoices({
 			data: { accent: "latam", gender: "", use: "", search: "", page: 0 },
 		}),
 		lines: await getSampleLines(),
+		projects: await getProjects(),
 	}),
 	component: Voices,
 });
@@ -61,7 +67,13 @@ const field =
 	"h-10 rounded-lg border bg-card px-3 text-sm outline-none focus:border-white/40";
 
 function Voices() {
-	const { first, lines } = Route.useLoaderData();
+	const { first, lines, projects } = Route.useLoaderData();
+	const { project: projectParam } = Route.useSearch();
+	const [project, setProject] = useState(
+		projectParam && projects.some((p) => p.slug === projectParam)
+			? projectParam
+			: (projects[0]?.slug ?? ""),
+	);
 	const [accent, setAccent] = useState("latam");
 	const [gender, setGender] = useState("");
 	const [use, setUse] = useState("");
@@ -118,6 +130,23 @@ function Voices() {
 				cada voz es gratis. «Probar con mi texto» añade la voz a tu cuenta y
 				gasta créditos, unos pocos por cada frase.
 			</p>
+
+			{projects.length > 0 && (
+				<label className="mt-6 flex max-w-md flex-col gap-1.5 text-sm font-medium">
+					Proyecto para el que eliges voz
+					<select
+						className={field}
+						value={project}
+						onChange={(e) => setProject(e.target.value)}
+					>
+						{projects.map((p) => (
+							<option key={p.slug} value={p.slug}>
+								{p.name}
+							</option>
+						))}
+					</select>
+				</label>
+			)}
 
 			<div className="mt-6 grid gap-3 md:grid-cols-[repeat(3,minmax(0,1fr))_minmax(0,1.4fr)]">
 				<select
@@ -219,7 +248,7 @@ function Voices() {
 			) : (
 				<ul className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
 					{voices.map((v) => (
-						<VoiceItem key={v.id} v={v} text={text} />
+						<VoiceItem key={v.id} v={v} text={text} project={project} />
 					))}
 				</ul>
 			)}
@@ -246,13 +275,23 @@ function Voices() {
 	);
 }
 
-function VoiceItem({ v, text }: { v: VoiceCard; text: string }) {
+function VoiceItem({
+	v,
+	text,
+	project,
+}: {
+	v: VoiceCard;
+	text: string;
+	project: string;
+}) {
 	const [sample, setSample] = useState<{ text: string; audio: string } | null>(
 		null,
 	);
 	const [busy, setBusy] = useState(false);
 	const [err, setErr] = useState("");
 	const [copied, setCopied] = useState(false);
+	const [assigning, setAssigning] = useState(false);
+	const [assigned, setAssigned] = useState(false);
 	const tags = [v.accent, v.locale, v.gender, v.age, v.use]
 		.filter(Boolean)
 		.map((t) => LABEL[t] ?? t);
@@ -277,6 +316,21 @@ function VoiceItem({ v, text }: { v: VoiceCard; text: string }) {
 		);
 		setCopied(true);
 		setTimeout(() => setCopied(false), 1500);
+	};
+	const use = async () => {
+		setAssigning(true);
+		setErr("");
+		try {
+			await setProjectVoice({
+				data: { project, owner: v.owner, id: v.id, name: v.name },
+			});
+			setAssigned(true);
+			setTimeout(() => setAssigned(false), 2500);
+		} catch (e) {
+			setErr(e instanceof Error ? e.message.slice(0, 260) : String(e));
+		} finally {
+			setAssigning(false);
+		}
 	};
 
 	return (
@@ -349,6 +403,24 @@ function VoiceItem({ v, text }: { v: VoiceCard; text: string }) {
 						{copied ? "Copiado" : "Elegir"}
 					</button>
 				</div>
+				{project && (
+					<button
+						type="button"
+						onClick={use}
+						disabled={assigning}
+						className="mt-2 inline-flex w-full items-center justify-center gap-2 rounded-lg border border-accent/50 px-3 py-2 text-sm font-medium text-accent disabled:opacity-50"
+						title={`Guarda esta voz como la voz por defecto de ${project}`}
+					>
+						{assigning ? (
+							<Loader2 className="size-4 animate-spin" aria-hidden />
+						) : assigned ? (
+							<Check className="size-4" aria-hidden />
+						) : (
+							<Sparkles className="size-4" aria-hidden />
+						)}
+						{assigned ? "Voz asignada" : `Usar en ${project}`}
+					</button>
+				)}
 			</div>
 		</li>
 	);

@@ -1,5 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { Cmd, Empty } from "#/components/ui";
+import { Plus } from "lucide-react";
+import { Empty } from "#/components/ui";
 import { fileUrl, fmtAgo } from "#/lib/format";
 import { getProjects } from "#/server/vk";
 
@@ -19,16 +20,22 @@ function Home() {
 						Each project has its own brand, voice and knowledge base.
 					</p>
 				</div>
-				<p className="text-sm text-muted-foreground">
-					New project: <Cmd>bun vk init my-brand</Cmd>
-				</p>
+				<Link
+					to="/new"
+					className="inline-flex items-center gap-2 rounded-lg bg-accent px-4 py-2.5 text-sm font-semibold text-accent-foreground"
+				>
+					<Plus className="size-4" aria-hidden />
+					New project
+				</Link>
 			</div>
 
 			{projects.length === 0 ? (
 				<div className="mt-10">
 					<Empty title="No projects yet">
-						Run <Cmd>bun vk init my-brand</Cmd> or ask Claude to use the{" "}
-						<b>vk-project</b> skill.
+						<Link to="/new" className="font-medium text-accent hover:underline">
+							Create your first project
+						</Link>{" "}
+						— it only takes brand colors and a name.
 					</Empty>
 				</div>
 			) : (

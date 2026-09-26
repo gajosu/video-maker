@@ -1,3 +1,5 @@
+import { readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { createServerFn } from "@tanstack/react-start";
 import {
 	addShared,
@@ -8,6 +10,7 @@ import {
 	speak,
 	tier,
 } from "../../cli/lib/elevenlabs.ts";
+import { projectDir } from "../../cli/lib/paths.ts";
 import { listProjects, listVideos } from "../../cli/lib/project.ts";
 
 const USE_CASES = [
@@ -153,4 +156,37 @@ export const sampleVoice = createServerFn({ method: "POST" })
 		const url = `data:audio/mpeg;base64,${audio.toString("base64")}`;
 		samples.set(k, url);
 		return { audio: url };
+	});
+
+/** adds the library voice to the account (if needed) and sets it as the project's default voice in project.json */
+export const setProjectVoice = createServerFn({ method: "POST" })
+	.validator((d: unknown) => {
+		const o = (d ?? {}) as Record<string, unknown>;
+		const project = String(o.project ?? "");
+		if (!/^[\w-]+$/.test(project)) throw new Error("invalid project");
+		for (const k of ["owner", "id"])
+			if (typeof o[k] !== "string" || !/^\w+$/.test(o[k] as string))
+				throw new Error(`invalid ${k}`);
+		return {
+			project,
+			owner: o.owner as string,
+			id: o.id as string,
+			name: String(o.name ?? "voice").slice(0, 60),
+		};
+	})
+	.handler(async ({ data }) => {
+		let voiceId: string;
+		try {
+			voiceId = await addShared(data.owner, data.id, data.name);
+		} catch (e) {
+			const m = e instanceof Error ? e.message : String(e);
+			throw new Error(
+				/paid_plan_required|payment_required/.test(m) ? FREE_LIBRARY_MSG : m,
+			);
+		}
+		const f = join(projectDir(data.project), "project.json");
+		const pj = JSON.parse(readFileSync(f, "utf8"));
+		pj.voice = { ...pj.voice, provider: "elevenlabs", voiceId };
+		writeFileSync(f, `${JSON.stringify(pj, null, 2)}\n`);
+		return { voiceId };
 	});
