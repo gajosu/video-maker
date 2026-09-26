@@ -64,6 +64,29 @@ function RootDocument({ children }: { children: React.ReactNode }) {
 						<span className="hidden text-sm text-muted-foreground sm:inline">
 							preview · everything else runs in the terminal
 						</span>
+						<nav className="ml-auto flex items-center gap-4 text-sm">
+							<Link
+								to="/"
+								className="text-muted-foreground hover:text-foreground"
+								activeOptions={{ exact: true }}
+								activeProps={{ className: "text-foreground" }}
+							>
+								Proyectos
+							</Link>
+							<Link
+								to="/voices"
+								className="text-muted-foreground hover:text-foreground"
+								activeProps={{ className: "text-foreground" }}
+							>
+								Voces
+							</Link>
+							<Link
+								to="/studio"
+								className="rounded-lg bg-accent px-3 py-1.5 font-medium text-accent-foreground"
+							>
+								Nuevo video
+							</Link>
+						</nav>
 					</div>
 				</header>
 				{children}

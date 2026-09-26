@@ -43,7 +43,23 @@ export async function openVideo(p: string, v: string, light?: boolean): Promise<
 }
 
 const renderAt = (page: Page, t: number) =>
-	page.evaluate((t) => (window as unknown as { render(t: number): void }).render(t), t);
+	page.evaluate(async (t) => {
+		(window as unknown as { render(t: number): void }).render(t);
+		// every frame rebuilds the DOM: wait for its images (video-clip frames, emoji, logos) to decode,
+		// or the screenshot can catch an empty <img> and the frame flashes blank
+		const settle = Promise.all(
+			Array.from(document.images).map((im) =>
+				(im.complete
+					? Promise.resolve()
+					: new Promise((r) => {
+							im.addEventListener("load", r, { once: true });
+							im.addEventListener("error", r, { once: true });
+						})
+				).then(() => im.decode().catch(() => {})),
+			),
+		);
+		await Promise.race([settle, new Promise((r) => setTimeout(r, 4000))]);
+	}, t);
 
 export async function exportEvents(p: string, v: string, light?: boolean): Promise<Events> {
 	const { browser, page } = await openVideo(p, v, light);

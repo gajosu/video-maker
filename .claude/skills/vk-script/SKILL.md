@@ -50,6 +50,7 @@ title: Human title
 style: punchy           # punchy | motion | story | vox | dev (default: project format.style)
 theme: light            # optional; overrides project format.theme
 music: true             # optional: true (style preset) | beat | pulse | ambient | pluck | none | <music asset name>
+voice: <voiceId>        # optional: ElevenLabs voice for this video (pick with the user; see vk-make step 2)
 uses: [shared]          # optional; includes projects/<p>/scenes/shared.js before scenes.js
 ---
 # Human title

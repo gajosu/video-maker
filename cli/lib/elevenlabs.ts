@@ -1,10 +1,18 @@
+import { existsSync, readFileSync } from "node:fs";
 import type { Alignment } from "./cues.ts";
 import type { Voice } from "./project.ts";
 
 const API = "https://api.elevenlabs.io";
 
+// Bun loads .env for the CLI; the Vite dev server (Node) does not, so read it here as a fallback.
+function fromDotEnv(name: string): string | undefined {
+	if (!existsSync(".env")) return undefined;
+	const m = readFileSync(".env", "utf8").match(new RegExp(`^${name}=(.*)$`, "m"));
+	return m?.[1].trim().replace(/^["']|["']$/g, "") || undefined;
+}
+
 function key(): string {
-	const k = process.env.ELEVENLABS_API_KEY;
+	const k = process.env.ELEVENLABS_API_KEY || fromDotEnv("ELEVENLABS_API_KEY");
 	if (!k) throw new Error("ELEVENLABS_API_KEY is not set (copy .env.example to .env and fill it in)");
 	return k;
 }
@@ -40,4 +48,53 @@ export async function listVoices(search?: string): Promise<VoiceListing[]> {
 	if (search) q.set("search", search);
 	const r = await call(`/v2/voices?${q}`);
 	return r.voices;
+}
+
+/** a voice from the public ElevenLabs voice library */
+export type SharedVoice = {
+	voice_id: string;
+	public_owner_id: string;
+	name: string;
+	accent?: string;
+	gender?: string;
+	age?: string;
+	use_case?: string;
+	locale?: string;
+	description?: string;
+	preview_url?: string;
+	cloned_by_count?: number;
+};
+
+export const LATAM_ACCENTS = ["latin american", "mexican", "colombian", "argentine", "peruvian", "chilean", "venezuelan", "cuban", "ecuadorian", "puerto rican", "dominican", "caribbean"];
+
+export type SharedQuery = { language?: string; accent?: string; gender?: string; useCase?: string; search?: string; sort?: string; page?: number; pageSize?: number };
+
+export async function listShared(o: SharedQuery): Promise<{ voices: SharedVoice[]; hasMore: boolean }> {
+	const q = new URLSearchParams({ page_size: String(o.pageSize ?? 30), page: String(o.page ?? 0) });
+	if (o.language) q.set("language", o.language);
+	if (o.accent) q.set("accent", o.accent);
+	if (o.gender) q.set("gender", o.gender);
+	if (o.useCase) q.set("use_cases", o.useCase);
+	if (o.search) q.set("search", o.search);
+	if (o.sort) q.set("sort", o.sort);
+	const r = await call(`/v1/shared-voices?${q}`);
+	return { voices: r.voices ?? [], hasMore: !!r.has_more };
+}
+
+/** subscription tier ("free", "starter", "creator", …); free accounts can't use library voices through the API */
+export async function tier(): Promise<string> {
+	const r = await call("/v1/user/subscription");
+	return String(r.tier ?? "unknown");
+}
+
+export const FREE_LIBRARY_MSG =
+	"Tu plan gratuito de ElevenLabs no permite usar voces de la biblioteca por API (ni para probarlas ni para grabar videos). Los previews sí funcionan. Para usarlas necesitas un plan de pago (desde Starter).";
+
+/** copy a library voice into the account so TTS can use it; returns the voice id to put in script.md `voice:` */
+export async function addShared(owner: string, voiceId: string, name: string): Promise<string> {
+	const mine = await listVoices();
+	const have = mine.find((v) => v.voice_id === voiceId);
+	if (have) return have.voice_id;
+	const r = await call(`/v1/voices/add/${owner}/${voiceId}`, { method: "POST", body: JSON.stringify({ new_name: name }) });
+	return r.voice_id;
 }

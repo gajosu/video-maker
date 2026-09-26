@@ -28,11 +28,13 @@ Look at the example for the video's style before writing:
    - Images, screens, clips and sounds come from the asset library by name. If a scene needs something that doesn't exist, get it with the **vk-assets** skill (or request it from the user) instead of faking it with shapes.
    - `SPEC`: `[sceneName, [firstLine, lastLine], opts]` covering every line in order, with `sfx` timings: built-ins (`pop`, `ok`, `skip`, `dm`, `impact`, `price`, `cta`, `whoosh`) or the name of any `sfx` asset (`camera`, `swipe`…). The first `impact` is the music drop, so put it on the "problem" hit. Story videos usually want few, soft sounds; motion and punchy want one on every beat.
    - Time things from `o.l` (the scene's line windows), `frac(o,[.5])`, and `o.M.<mark>` for `{#mark}` words, never hard-coded absolute seconds.
+   - **Compose for the full canvas, centered** (base rule): header/logo, hero and captions together span about y 150–1620 with the visual center near y≈900. Never pile everything into the top half with an empty band above the platform UI; move the block down and make the hero bigger until it fills. See "Layout rules" in `engine/README.md`.
 4. Validate: `bun vk check <p> <v>` (line counts, SPEC coverage, missing scenes).
 5. **Look at it.** `bun vk stills <p> <v> <t1> <t2> …` with one time in the middle of each scene (and one right after each cut), then open the JPGs (Read tool) and critique like an editor:
    - Is the text legible, above y≈1600, max 2 lines, not overlapping UI?
    - Does each frame read in under a second? Is there one clear focal point?
    - Brand colors/fonts right? Emoji rendering? Anything clipped or empty?
+   - Does the composition fill the canvas, centered? A blank band between the content and y≈1620 (or everything sitting in the top half) is a fail.
    Fix and repeat until every still passes. Tell the user which times you checked.
 6. Point the user to `http://localhost:3000/p/<p>/v/<v>` for live scrubbing (it hot-reloads on save).
 

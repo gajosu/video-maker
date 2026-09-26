@@ -10,9 +10,13 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as VoicesRouteImport } from './routes/voices'
+import { Route as StudioIndexRouteImport } from './routes/studio.index'
 import { Route as ApiAssetSplatRouteImport } from './routes/api/asset.$'
+import { Route as ApiAssetsProjectRouteImport } from './routes/api/assets.$project'
 import { Route as ApiFilesSplatRouteImport } from './routes/api/files.$'
 import { Route as PProjectIndexRouteImport } from './routes/p.$project.index'
+import { Route as StudioProjectVideoRouteImport } from './routes/studio.$project.$video'
 import { Route as ApiPageProjectVideoRouteImport } from './routes/api/page.$project.$video'
 import { Route as ApiUploadProjectNameRouteImport } from './routes/api/upload.$project.$name'
 import { Route as PProjectVVideoRouteImport } from './routes/p.$project.v.$video'
@@ -22,9 +26,24 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const VoicesRoute = VoicesRouteImport.update({
+  id: '/voices',
+  path: '/voices',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const StudioIndexRoute = StudioIndexRouteImport.update({
+  id: '/studio/',
+  path: '/studio/',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiAssetSplatRoute = ApiAssetSplatRouteImport.update({
   id: '/api/asset/$',
   path: '/api/asset/$',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiAssetsProjectRoute = ApiAssetsProjectRouteImport.update({
+  id: '/api/assets/$project',
+  path: '/api/assets/$project',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiFilesSplatRoute = ApiFilesSplatRouteImport.update({
@@ -35,6 +54,11 @@ const ApiFilesSplatRoute = ApiFilesSplatRouteImport.update({
 const PProjectIndexRoute = PProjectIndexRouteImport.update({
   id: '/p/$project/',
   path: '/p/$project/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const StudioProjectVideoRoute = StudioProjectVideoRouteImport.update({
+  id: '/studio/$project/$video',
+  path: '/studio/$project/$video',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiPageProjectVideoRoute = ApiPageProjectVideoRouteImport.update({
@@ -55,8 +79,12 @@ const PProjectVVideoRoute = PProjectVVideoRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/voices': typeof VoicesRoute
+  '/studio/': typeof StudioIndexRoute
   '/api/asset/$': typeof ApiAssetSplatRoute
+  '/api/assets/$project': typeof ApiAssetsProjectRoute
   '/api/files/$': typeof ApiFilesSplatRoute
+  '/studio/$project/$video': typeof StudioProjectVideoRoute
   '/p/$project/': typeof PProjectIndexRoute
   '/api/page/$project/$video': typeof ApiPageProjectVideoRoute
   '/api/upload/$project/$name': typeof ApiUploadProjectNameRoute
@@ -64,8 +92,12 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/voices': typeof VoicesRoute
+  '/studio': typeof StudioIndexRoute
   '/api/asset/$': typeof ApiAssetSplatRoute
+  '/api/assets/$project': typeof ApiAssetsProjectRoute
   '/api/files/$': typeof ApiFilesSplatRoute
+  '/studio/$project/$video': typeof StudioProjectVideoRoute
   '/p/$project': typeof PProjectIndexRoute
   '/api/page/$project/$video': typeof ApiPageProjectVideoRoute
   '/api/upload/$project/$name': typeof ApiUploadProjectNameRoute
@@ -74,8 +106,12 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/voices': typeof VoicesRoute
+  '/studio/': typeof StudioIndexRoute
   '/api/asset/$': typeof ApiAssetSplatRoute
+  '/api/assets/$project': typeof ApiAssetsProjectRoute
   '/api/files/$': typeof ApiFilesSplatRoute
+  '/studio/$project/$video': typeof StudioProjectVideoRoute
   '/p/$project/': typeof PProjectIndexRoute
   '/api/page/$project/$video': typeof ApiPageProjectVideoRoute
   '/api/upload/$project/$name': typeof ApiUploadProjectNameRoute
@@ -85,8 +121,12 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/voices'
+    | '/studio/'
     | '/api/asset/$'
+    | '/api/assets/$project'
     | '/api/files/$'
+    | '/studio/$project/$video'
     | '/p/$project/'
     | '/api/page/$project/$video'
     | '/api/upload/$project/$name'
@@ -94,8 +134,12 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/voices'
+    | '/studio'
     | '/api/asset/$'
+    | '/api/assets/$project'
     | '/api/files/$'
+    | '/studio/$project/$video'
     | '/p/$project'
     | '/api/page/$project/$video'
     | '/api/upload/$project/$name'
@@ -103,8 +147,12 @@ export interface FileRouteTypes {
   id:
     | '__root__'
     | '/'
+    | '/voices'
+    | '/studio/'
     | '/api/asset/$'
+    | '/api/assets/$project'
     | '/api/files/$'
+    | '/studio/$project/$video'
     | '/p/$project/'
     | '/api/page/$project/$video'
     | '/api/upload/$project/$name'
@@ -113,8 +161,12 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  VoicesRoute: typeof VoicesRoute
+  StudioIndexRoute: typeof StudioIndexRoute
   ApiAssetSplatRoute: typeof ApiAssetSplatRoute
+  ApiAssetsProjectRoute: typeof ApiAssetsProjectRoute
   ApiFilesSplatRoute: typeof ApiFilesSplatRoute
+  StudioProjectVideoRoute: typeof StudioProjectVideoRoute
   PProjectIndexRoute: typeof PProjectIndexRoute
   ApiPageProjectVideoRoute: typeof ApiPageProjectVideoRoute
   ApiUploadProjectNameRoute: typeof ApiUploadProjectNameRoute
@@ -130,11 +182,32 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/voices': {
+      id: '/voices'
+      path: '/voices'
+      fullPath: '/voices'
+      preLoaderRoute: typeof VoicesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/studio/': {
+      id: '/studio/'
+      path: '/studio'
+      fullPath: '/studio/'
+      preLoaderRoute: typeof StudioIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/asset/$': {
       id: '/api/asset/$'
       path: '/api/asset/$'
       fullPath: '/api/asset/$'
       preLoaderRoute: typeof ApiAssetSplatRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/assets/$project': {
+      id: '/api/assets/$project'
+      path: '/api/assets/$project'
+      fullPath: '/api/assets/$project'
+      preLoaderRoute: typeof ApiAssetsProjectRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/files/$': {
@@ -149,6 +222,13 @@ declare module '@tanstack/react-router' {
       path: '/p/$project'
       fullPath: '/p/$project/'
       preLoaderRoute: typeof PProjectIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/studio/$project/$video': {
+      id: '/studio/$project/$video'
+      path: '/studio/$project/$video'
+      fullPath: '/studio/$project/$video'
+      preLoaderRoute: typeof StudioProjectVideoRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/page/$project/$video': {
@@ -177,8 +257,12 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  VoicesRoute: VoicesRoute,
+  StudioIndexRoute: StudioIndexRoute,
   ApiAssetSplatRoute: ApiAssetSplatRoute,
+  ApiAssetsProjectRoute: ApiAssetsProjectRoute,
   ApiFilesSplatRoute: ApiFilesSplatRoute,
+  StudioProjectVideoRoute: StudioProjectVideoRoute,
   PProjectIndexRoute: PProjectIndexRoute,
   ApiPageProjectVideoRoute: ApiPageProjectVideoRoute,
   ApiUploadProjectNameRoute: ApiUploadProjectNameRoute,

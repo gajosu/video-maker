@@ -31,6 +31,7 @@ If the ElevenLabs connector is available in this Claude session, its image/sound
 - Be specific so they can capture it in one go: which screen, state, data shown, light/dark mode, device orientation. One request per asset.
 - Requests show up in the preview (**Assets** tab, "Requested from you") with a drop zone; uploads land in the library automatically. Tell the user that.
 - Until then, scenes render a labeled placeholder, so keep building. `bun vk check` warns about open requests.
+- The user can also upload anything, unrequested, from the **Assets** tab ("Subir assets": name + description, `source: upload`). Check `bun vk asset list <p>` first: the description after "—" says what each upload is (e.g. a mascot pose). Use real uploads before generating or faking anything. Transparent PNG characters should be animated whole (pop, float, bounce, swap poses on the voice's marks), never cropped or recolored.
 
 ## 3. Quality and licensing rules
 - Stock for full-bleed video needs ≥1080 px on the short side; prefer portrait. Look at the file (Read tool) before using it.

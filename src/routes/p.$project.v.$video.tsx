@@ -9,6 +9,7 @@ import {
 	Sun,
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { VideoChat } from "#/components/studio-chat";
 import { Cmd, Empty, StatusBadge } from "#/components/ui";
 import { fileUrl, fmtTime } from "#/lib/format";
 import { cn } from "#/lib/utils";
@@ -31,7 +32,7 @@ type PageWindow = Window & {
 	DUR?: number;
 };
 type Scene = { name: string; start: number; end: number };
-type Side = "script" | "render" | "stills" | "cues";
+type Side = "chat" | "script" | "render" | "stills" | "cues";
 type Source = "mix" | "voice" | "none";
 
 function VideoPage() {
@@ -51,7 +52,7 @@ function VideoPage() {
 	const [errors, setErrors] = useState<string[]>([]);
 	const [rev, setRev] = useState(0);
 	const [theme, setTheme] = useState<"light" | "dark" | undefined>(undefined);
-	const [side, setSide] = useState<Side>("script");
+	const [side, setSide] = useState<Side>("chat");
 	const [source, setSource] = useState<Source>(
 		video.files.mix ? "mix" : video.files.vo ? "voice" : "none",
 	);
@@ -145,9 +146,17 @@ function VideoPage() {
 		return () => hot.off("vk:change", on);
 	}, []);
 
+	const retries = useRef(0);
 	const onFrameLoad = () => {
 		const w = iframeRef.current?.contentWindow as PageWindow | null;
-		if (!w) return;
+		if (!w || w.location.href === "about:blank") return;
+		// a reload can catch files mid-write (e.g. while a studio job is running): retry before showing an error
+		if (!w.VK_READY && !w.VK_ERRORS?.length && retries.current < 3) {
+			retries.current++;
+			setTimeout(() => setRev((r) => r + 1), 700);
+			return;
+		}
+		if (w.VK_READY) retries.current = 0;
 		setErrors(
 			w.VK_READY
 				? (w.VK_ERRORS ?? [])
@@ -310,24 +319,27 @@ function VideoPage() {
 				</p>
 
 				<nav className="mt-5 flex gap-1 border-b" aria-label="Video panels">
-					{(["script", "render", "stills", "cues"] as Side[]).map((s) => (
-						<button
-							key={s}
-							type="button"
-							onClick={() => setSide(s)}
-							className={cn(
-								"-mb-px border-b-2 px-3 py-2 text-sm font-medium capitalize",
-								side === s
-									? "border-accent"
-									: "border-transparent text-muted-foreground hover:text-foreground",
-							)}
-						>
-							{s}
-						</button>
-					))}
+					{(["chat", "script", "render", "stills", "cues"] as Side[]).map(
+						(s) => (
+							<button
+								key={s}
+								type="button"
+								onClick={() => setSide(s)}
+								className={cn(
+									"-mb-px border-b-2 px-3 py-2 text-sm font-medium capitalize",
+									side === s
+										? "border-accent"
+										: "border-transparent text-muted-foreground hover:text-foreground",
+								)}
+							>
+								{s}
+							</button>
+						),
+					)}
 				</nav>
 
 				<div className="mt-4">
+					{side === "chat" && <VideoChat project={p} video={video.slug} />}
 					{side === "script" && (
 						<ScriptPanel
 							lines={video.script?.lines.map((l) => l.text) ?? []}

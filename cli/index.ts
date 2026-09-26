@@ -19,7 +19,7 @@ import { genImage, genMusic, genSfx, renderHtml } from "./lib/generate.ts";
 import { type Hit, search } from "./lib/search.ts";
 import { resolveStyle, STYLES } from "./lib/styles.ts";
 import { cuesFromAlignment, cuesFromSilence } from "./lib/cues.ts";
-import { listVoices, speak } from "./lib/elevenlabs.ts";
+import { addShared, FREE_LIBRARY_MSG, LATAM_ACCENTS, listShared, listVoices, type SharedVoice, speak, tier } from "./lib/elevenlabs.ts";
 import { run } from "./lib/ffmpeg.ts";
 import { assertSlug, PROJECTS_DIR, projectDir, ROOT, videoDir } from "./lib/paths.ts";
 import { type Cues, listProjects, listVideos, loadProject, loadVideo, readKnowledge } from "./lib/project.ts";
@@ -33,7 +33,10 @@ const HELP = `video-kit — punchy vertical videos from a script
   bun vk init <project> [--name "X"]    new project (copied from projects/_example)
   bun vk new <project> <video> [--title "X"]   new video (script.md + scenes.js)
   bun vk kb <project> [query]           print the knowledge base (or grep it)
-  bun vk voices [search]                list ElevenLabs voices
+  bun vk voices [search]                list the voices in your ElevenLabs account
+  bun vk voices --latam [--accent a] [--gender g] [--use u] [--search s] [--limit n]   public library, Latin American Spanish (preview links)
+  bun vk voices --library [--lang xx] [...]   public library, any language
+  bun vk voices add <owner>/<voiceId>   add a library voice to your account; then "voice: <id>" in script.md
   bun vk voice <project> <video>        TTS with timestamps -> vo.mp3 + cues.json
   bun vk cues <project> <video> [--audio f] [--lines N]   cues from any audio file (silence detection)
   bun vk tighten <project> <video> [--max-gap .3]         shorten pauses, rewrite cues
@@ -248,19 +251,48 @@ const commands: Record<string, () => Promise<void> | void> = {
 	},
 
 	async voices() {
-		for (const v of await listVoices(args.join(" ") || undefined))
-			console.log(`${v.voice_id}  ${v.name.padEnd(28)} ${v.category ?? ""} ${Object.values(v.labels ?? {}).join(", ")}`);
+		if (args[0] === "add") {
+			const [owner, id] = (args[1] ?? "").split("/");
+			if (!owner || !id) throw new Error("usage: bun vk voices add <owner>/<voiceId> [--name n]  (the token printed by voices --latam/--library)");
+			if ((await tier()) === "free") throw new Error(FREE_LIBRARY_MSG);
+			const vid = await addShared(owner, id, str("name") ?? `library ${id}`);
+			console.log(`ready: ${vid}\nuse it in a video with "voice: ${vid}" in script.md front matter (or project.json voice.voiceId for all videos)`);
+			return;
+		}
+		if (!flags.latam && !flags.library) {
+			for (const v of await listVoices(args.join(" ") || undefined))
+				console.log(`${v.voice_id}  ${v.name.padEnd(28)} ${v.category ?? ""} ${Object.values(v.labels ?? {}).join(", ")}`);
+			return;
+		}
+		const limit = Number(str("limit") ?? 20);
+		const base = { language: str("lang") ?? (flags.latam ? "es" : undefined), gender: str("gender"), useCase: str("use"), search: str("search"), sort: str("sort") };
+		const accents = str("accent") ? [str("accent") as string] : flags.latam ? LATAM_ACCENTS.slice(0, 4) : [undefined];
+		const seen = new Set<string>();
+		let list: SharedVoice[] = [];
+		for (const accent of accents)
+			for (const v of (await listShared({ ...base, accent, pageSize: limit })).voices)
+				if (!seen.has(v.voice_id)) seen.add(v.voice_id), list.push(v);
+		if (accents.length > 1) list = list.sort((a, b) => (b.cloned_by_count ?? 0) - (a.cloned_by_count ?? 0)).slice(0, limit);
+		if (!list.length) return console.log("no voices match");
+		list.forEach((v, i) => {
+			const tags = [v.accent, v.locale, v.gender, v.age, v.use_case].filter(Boolean).join(" · ");
+			console.log(`${String(i + 1).padStart(2)}. ${v.name.trim().slice(0, 40).padEnd(40)} ${tags}  (${v.cloned_by_count ?? 0} usos)`);
+			if (v.description) console.log(`    ${v.description.replace(/\s+/g, " ").trim().slice(0, 110)}`);
+			console.log(`    preview: ${v.preview_url ?? "-"}\n    add:     bun vk voices add ${v.public_owner_id}/${v.voice_id}`);
+		});
+		console.log(`\nfilters: --accent (${LATAM_ACCENTS.join(", ")}) --gender male|female --use conversational|narrative_story|advertisement|social_media --search text --limit n`);
 	},
 
 	async voice() {
 		const [p, v] = need(2, "voice <project> <video>");
 		const project = loadProject(p);
-		const { script } = loadVideo(p, v);
+		const { script, voice: videoVoice } = loadVideo(p, v);
 		if (!script?.lines.length) throw new Error("script.md has no lines under ## Lines");
 		const sep = " ";
 		const text = script.lines.map((l) => l.text).join(sep);
-		console.log(`speaking ${script.lines.length} lines (${text.length} chars) with ${project.voice.voiceId}…`);
-		const { audio, alignment } = await speak(text, project.voice);
+		console.log(`speaking ${script.lines.length} lines (${text.length} chars) with ${videoVoice ?? project.voice.voiceId}…`);
+		const voice = videoVoice ? { ...project.voice, voiceId: videoVoice } : project.voice;
+		const { audio, alignment } = await speak(text, voice);
 		const dir = videoDir(p, v);
 		mkdirSync(join(dir, "build"), { recursive: true });
 		writeFileSync(join(dir, "vo.mp3"), audio);
@@ -387,7 +419,7 @@ const commands: Record<string, () => Promise<void> | void> = {
 				for (const a of list) {
 					const ok = existsSync(join(assetsDir(p), a.file)) ? " " : "!";
 					const meta = [a.width ? `${a.width}×${a.height}` : "", a.duration ? `${a.duration}s` : "", a.license ?? ""].filter(Boolean).join(" ");
-					console.log(`${ok} ${a.kind.padEnd(5)} ${a.name.padEnd(24)} ${a.file.padEnd(34)} ${meta}  [${a.source.type}]`);
+					console.log(`${ok} ${a.kind.padEnd(5)} ${a.name.padEnd(24)} ${a.file.padEnd(34)} ${meta}  [${a.source.type}]${a.description ? `  — ${a.description}` : ""}`);
 				}
 				const open = m.requests.filter((r) => r.status === "open");
 				if (open.length) console.log(`\nopen requests:\n${open.map((r) => `  ? ${r.name.padEnd(22)} ${r.kind} ${r.size ?? ""}  ${r.description}${r.video ? `  (video ${r.video})` : ""}`).join("\n")}`);
@@ -398,7 +430,7 @@ const commands: Record<string, () => Promise<void> | void> = {
 				const src = rest[0];
 				const name = str("name");
 				if (!src || !name) throw new Error("usage: bun vk asset add <p> <file|url> --name n");
-				const o = { name, kind: kindFlag === "audio" ? undefined : kindFlag, license: str("license"), credit: str("credit"), fps: loadProject(p).format.fps, request: str("for") };
+				const o = { name, kind: kindFlag === "audio" ? undefined : kindFlag, license: str("license"), credit: str("credit"), description: str("description"), fps: loadProject(p).format.fps, request: str("for") };
 				const a = /^https?:\/\//.test(src) ? await addUrl(p, src, o) : addFile(p, src, o);
 				console.log(`added ${a.kind} "${a.name}" → assets/${a.file}${a.frames ? ` (${a.frames.count} frames)` : ""}`);
 				return;

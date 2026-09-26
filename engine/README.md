@@ -185,6 +185,7 @@ The mix (`cli/lib/audio.ts`, `bun vk mix`) = music bed + SFX events + voice, mus
 ## Layout rules
 
 - Canvas 1080×1920. Keep text above y≈1600 and ~120 px away from the right edge (platform UI).
-- Captions around y 1150–1450; big hero content 300–1100.
+- **Fill the canvas, centered.** The composition (header/logo → hero → captions) spans the whole safe area, about y 150–1620, with its visual center near y≈900. Never stack everything in the top half and leave a blank band between the content and the platform UI: move the block down and scale the hero up (cards 860–930 px wide, phones 540–600 px wide) until it fills. Wrapping a scene's content in `<div class="abs" style="inset:0;transform-origin:50% 45%;transform:translateY(Npx) scale(k)">` is a quick way to rebalance.
+- Captions sit right under the hero, usually y 1450–1600 (set `capY` per scene); big hero content roughly 250–1400.
 - One focal point per frame. Max 2 caption lines. Captions should highlight 1–2 words.
 - Motion: things pop in (`pop`), scenes start with `punch`/`flash`, nothing moves linearly for long.

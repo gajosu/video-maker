@@ -30,6 +30,8 @@ export type Asset = {
 	/** extracted frames for video assets (frames/<name>/00001.jpg …) */
 	frames?: { dir: string; count: number; fps: number };
 	tags?: string[];
+	/** what it shows / how to use it (e.g. "Elio waving, transparent background") */
+	description?: string;
 	addedAt: string;
 };
 
@@ -114,6 +116,7 @@ export type AddOptions = {
 	license?: string;
 	credit?: string;
 	tags?: string[];
+	description?: string;
 	fps?: number;
 	/** fulfil this request id */
 	request?: string;
@@ -143,6 +146,7 @@ export function addFile(p: string, file: string, o: AddOptions): Asset {
 		credit: o.credit,
 		...probe(abs),
 		tags: o.tags,
+		description: o.description,
 		addedAt: today(),
 	};
 	if (kind === "video") asset.frames = extractFrames(p, name, abs, o.fps ?? 30);

@@ -1,7 +1,7 @@
 # video-kit
 
 Punchy vertical videos (Reels/TikTok/Shorts) from a script: ElevenLabs voice → HTML scenes → Playwright frames → ffmpeg.
-**Everything runs in the terminal** (`bun vk …` + skills). The TanStack Start app in `src/` is a read-only preview.
+**Everything runs in the terminal** (`bun vk …` + skills). The TanStack Start app in `src/` is a preview, plus a voice browser (`/voices`) and a "Nuevo video" page (`/studio`) that drives Claude Code headless.
 
 ## Layout
 - `engine/`: page runtime (`primitives.js`, `timeline.js`, `base.css`, `styles/{motion,story,vox,dev,anthem}.js`). Scene/asset/audio API reference: `engine/README.md`.
@@ -9,7 +9,9 @@ Punchy vertical videos (Reels/TikTok/Shorts) from a script: ElevenLabs voice →
 - `projects/<slug>/`: `project.json` (`fontFiles` loads brand fonts from `assets/`), `knowledge/*.md`, `scenes/*.js` (shared), `assets/` (manifest.json + files by kind), `videos/<v>/{script.md, scenes.js, cues.json, vo.mp3, out/, stills/, build/}`.
   Only `projects/_example` is committed; all other projects are gitignored (private). `VK_PROJECTS_DIR` moves them elsewhere.
 - `src/`: preview UI. `src/server/vk.ts` (server fns), `src/server/static.ts` (file serving, also used by the Vite dev middleware in `vite.config.ts`).
-- `src/routes/api/upload.$project.$name.ts`: the only write endpoint (fulfils open asset requests).
+- `src/routes/api/upload.$project.$name.ts`: fulfils open asset requests.
+- `/voices` (`src/server/voices.ts`): browse the public ElevenLabs library (Latin American Spanish), previews, test a voice with your text (paid plans only).
+- `/studio` (`src/server/studio.ts`, `studio-runner.ts`): "Nuevo video" form that runs Claude Code headless (`claude -p`, stream-json, restricted `--allowedTools`) through vk-make with two checkpoints (script approval + voice) and a change-request chat. Job state/log in `projects/<p>/jobs/<video>/`. One job at a time; localhost only. The video preview page has a Chat tab (`src/components/studio-chat.tsx`) that edits any video the same way (terminal-made videos get a job record on first message).
 - `.claude/skills/`: `vk-project`, `vk-learn`, `vk-script`, `vk-assets`, `vk-scenes`, `vk-make`.
 
 ## Commands

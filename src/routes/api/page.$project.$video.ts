@@ -25,7 +25,7 @@ export const Route = createFileRoute("/api/page/$project/$video")({
 				} catch (e) {
 					const msg = String((e as Error).message).replace(/</g, "&lt;");
 					return new Response(
-						`<body style="font:24px system-ui;color:#ff5c6c;background:#111;padding:40px"><b>Page error</b><pre>${msg}</pre></body>`,
+						`<body style="font:24px system-ui;color:#ff5c6c;background:#111;padding:40px"><script>window.VK_ERRORS=${JSON.stringify([String((e as Error).message)]).replace(/</g, "\\u003c")};</script><b>Page error</b><pre>${msg}</pre></body>`,
 						{
 							status: 500,
 							headers: { "content-type": "text/html; charset=utf-8" },

@@ -16,6 +16,8 @@ Everything runs from the terminal. The web app (`bun run dev`, http://localhost:
 `bun vk new <p> <slug> --title "..."`, then follow the **vk-script** skill. Show the user the lines and wait for an OK before spending TTS credits.
 
 ## 2. Voice
+**Always let the user pick the voice for each video before spending TTS credits.** Show a shortlist of 6–8 voices from the public library in the project's language and accent, mixing genders and styles that fit the script (for Latin American Spanish: `bun vk voices --latam --use advertisement|conversational|social_media [--accent mexican|colombian|…] [--gender …]`), with each voice's name, accent, gender, one-line description and preview link, plus the project's current voice as the default. Ask which one (AskUserQuestion). Then `bun vk voices add <owner>/<voiceId>` and set `voice: <id>` in the video's script.md front matter (project.json `voice.voiceId` stays the default).
+The user can also browse and listen at `http://localhost:3000/voices`. **Free ElevenLabs plans can't use library voices through the API** (402 `paid_plan_required`; `bun vk voices add` checks the tier first). On a free plan, say so, offer the account's own voices (`bun vk voices`), and let the user decide whether to upgrade.
 `bun vk voice <p> <v>` → `vo.mp3` + `cues.json` (per-line timing from ElevenLabs character timestamps, `{#marks}` → `kw`).
 Check the printed timings: lines should be in order with short gaps. If the pacing is slow, `bun vk tighten <p> <v> --max-gap 0.25` (keeps line timings and `{#marks}`; run it once per voicing).
 If a word is mispronounced, respell it in script.md (e.g. "énfo" → "info") and voice again.

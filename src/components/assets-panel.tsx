@@ -1,6 +1,7 @@
 import { useRouter } from "@tanstack/react-router";
 import { ImageIcon, Music, Upload, Video, Volume2 } from "lucide-react";
 import { useState } from "react";
+import { AssetUpload } from "#/components/asset-upload";
 import { Cmd, Empty } from "#/components/ui";
 import { fileUrl } from "#/lib/format";
 import { cn } from "#/lib/utils";
@@ -24,20 +25,24 @@ export function AssetsPanel({
 	const assets = Object.values(manifest.assets);
 	if (!assets.length && !open.length)
 		return (
-			<Empty title="No assets yet">
-				<p>
-					Search stock: <Cmd>bun vk asset search {project} coffee</Cmd>
-				</p>
-				<p className="mt-2">
-					Ask for a screenshot:{" "}
-					<Cmd>
-						bun vk asset request {project} app-home "Home screen, light mode"
-					</Cmd>
-				</p>
-			</Empty>
+			<div className="space-y-8">
+				<AssetUpload project={project} />
+				<Empty title="No assets yet">
+					<p>
+						Search stock: <Cmd>bun vk asset search {project} coffee</Cmd>
+					</p>
+					<p className="mt-2">
+						Ask for a screenshot:{" "}
+						<Cmd>
+							bun vk asset request {project} app-home "Home screen, light mode"
+						</Cmd>
+					</p>
+				</Empty>
+			</div>
 		);
 	return (
 		<div className="space-y-8">
+			<AssetUpload project={project} />
 			{open.length > 0 && (
 				<section>
 					<h2 className="font-semibold">Requested from you</h2>
@@ -88,6 +93,14 @@ function Meta({ a }: { a: Asset }) {
 	return (
 		<div className="mt-2 min-w-0 text-xs">
 			<div className="truncate font-mono text-sm text-foreground">{a.name}</div>
+			{a.description && (
+				<div
+					className="line-clamp-2 text-muted-foreground"
+					title={a.description}
+				>
+					{a.description}
+				</div>
+			)}
 			<div className="truncate text-muted-foreground">
 				{[
 					a.width ? `${a.width}×${a.height}` : "",
@@ -124,13 +137,18 @@ function AssetCard({ project, asset: a }: { project: string; asset: Asset }) {
 	if (a.kind === "image" || a.kind === "video")
 		return (
 			<li>
-				<div className="aspect-[9/16] overflow-hidden rounded-xl border bg-muted">
+				<div
+					className={cn(
+						"aspect-[9/16] overflow-hidden rounded-xl border",
+						a.kind === "image" ? "checker" : "bg-muted",
+					)}
+				>
 					{a.kind === "image" ? (
 						<img
 							src={url}
 							alt={a.name}
 							loading="lazy"
-							className="size-full object-cover"
+							className="size-full object-contain"
 						/>
 					) : (
 						<video

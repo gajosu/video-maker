@@ -210,6 +210,8 @@ export type VideoInfo = {
 	style: string;
 	/** script.md `music:` override (preset or music asset name) */
 	music?: string;
+	/** script.md `voice:` ElevenLabs voice id for this video (overrides project voice.voiceId) */
+	voice?: string;
 	/** script.md `master:` mix level automation, e.g. "L5:-3, pose:0, descarga:+3.5" (Ln = line n start, or a {#mark}) */
 	master?: string;
 	script: Script | null;
@@ -248,6 +250,7 @@ export function loadVideo(p: string, v: string): VideoInfo {
 		theme,
 		style: typeof meta.style === "string" ? meta.style : loadProject(p).format.style,
 		music: typeof meta.music === "string" ? meta.music : undefined,
+		voice: typeof meta.voice === "string" ? meta.voice : undefined,
 		master: typeof meta.master === "string" ? meta.master : undefined,
 		script,
 		cues,
