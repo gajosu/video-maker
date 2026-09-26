@@ -44,11 +44,7 @@ function NewProject() {
 			const r = await createProject({
 				data: { slug, name, primary, secondary, language, description },
 			});
-			await navigate({
-				to: "/p/$project",
-				params: { project: r.slug },
-				search: { tab: "brand" },
-			});
+			await navigate({ to: "/p/$project/setup", params: { project: r.slug } });
 		} catch (err) {
 			setError(err instanceof Error ? err.message : String(err));
 			setSending(false);

@@ -211,20 +211,25 @@ type Ev = { id: number; t: number; k: string; x: string };
 
 export function Activity({
 	project,
-	video,
+	video = "",
 	log,
 	status,
 	className,
+	onSend,
 	onSent,
 	empty,
+	placeholder: placeholderProp,
 }: {
 	project: string;
-	video: string;
+	video?: string;
 	log: Ev[];
 	status: string;
 	className?: string;
+	/** sends a follow-up message for this chat's job (default: the video job via messageJob) */
+	onSend?: (text: string) => Promise<unknown>;
 	onSent?: () => void;
 	empty?: string;
+	placeholder?: string;
 }) {
 	const router = useRouter();
 	const [msg, setMsg] = useState("");
@@ -270,7 +275,8 @@ export function Activity({
 		setBusy(true);
 		setError("");
 		try {
-			await messageJob({ data: { project, video, text: msg } });
+			await (onSend?.(msg) ??
+				messageJob({ data: { project, video, text: msg } }));
 			setMsg("");
 			onSent?.();
 			router.invalidate();
@@ -282,13 +288,14 @@ export function Activity({
 	};
 
 	const placeholder =
-		status === "review"
+		placeholderProp ??
+		(status === "review"
 			? "Pide cambios al guion…"
 			: status === "done" || !status
 				? "Pide un cambio al video…"
 				: status === "working"
 					? "Espera a que termine este paso…"
-					: "Dile que continúe o qué corregir…";
+					: "Dile que continúe o qué corregir…");
 
 	return (
 		<aside

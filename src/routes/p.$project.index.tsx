@@ -175,8 +175,15 @@ function Knowledge() {
 	if (!knowledge.length)
 		return (
 			<Empty title="Empty knowledge base">
-				Add markdown files to <Cmd>projects/{project.slug}/knowledge/</Cmd> or
-				ask Claude to use the <b>vk-learn</b> skill with a URL, notes or docs.
+				<Link
+					to="/p/$project/setup"
+					params={{ project: project.slug }}
+					className="font-medium text-accent hover:underline"
+				>
+					Configure it with Claude
+				</Link>{" "}
+				— a URL, notes or reference images — or add markdown files to{" "}
+				<Cmd>projects/{project.slug}/knowledge/</Cmd> yourself.
 			</Empty>
 		);
 	const active = knowledge.find((k) => k.file === doc) ?? knowledge[0];
