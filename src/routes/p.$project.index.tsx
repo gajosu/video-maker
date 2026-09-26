@@ -1,10 +1,11 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
-import { BookOpen, Film, Images, Palette } from "lucide-react";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { BookOpen, Film, Images, Loader2, Palette, Trash2 } from "lucide-react";
+import { useState } from "react";
 import { AssetsPanel } from "#/components/assets-panel";
 import { Cmd, Empty, StatusBadge, Swatch } from "#/components/ui";
 import { fileUrl, fmtAgo } from "#/lib/format";
 import { cn } from "#/lib/utils";
-import { getProject } from "#/server/vk";
+import { deleteProject, getProject } from "#/server/vk";
 
 type Tab = "videos" | "knowledge" | "assets" | "brand";
 const TABS: { id: Tab; label: string; icon: typeof Film }[] = [
@@ -285,6 +286,91 @@ function BrandPanel() {
 				Edit <Cmd>projects/{project.slug}/project.json</Cmd> to change any of
 				this.
 			</p>
+			<DangerZone slug={project.slug} />
 		</div>
+	);
+}
+
+function DangerZone({ slug }: { slug: string }) {
+	const navigate = useNavigate();
+	const [open, setOpen] = useState(false);
+	const [confirm, setConfirm] = useState("");
+	const [busy, setBusy] = useState(false);
+	const [error, setError] = useState("");
+
+	if (slug === "_example") return null;
+
+	const remove = async () => {
+		setBusy(true);
+		setError("");
+		try {
+			await deleteProject({ data: { slug, confirm } });
+			await navigate({ to: "/" });
+		} catch (err) {
+			setError(err instanceof Error ? err.message : String(err));
+			setBusy(false);
+		}
+	};
+
+	return (
+		<section className="rounded-xl border border-red-400/30 bg-red-400/5 p-5 lg:col-span-3">
+			<h2 className="font-semibold text-red-300">Danger zone</h2>
+			{!open ? (
+				<>
+					<p className="mt-2 text-sm text-muted-foreground">
+						Permanently delete this project: brand, videos, assets and knowledge
+						base. This can't be undone.
+					</p>
+					<button
+						type="button"
+						onClick={() => setOpen(true)}
+						className="mt-4 inline-flex items-center gap-2 rounded-lg border border-red-400/40 px-3 py-2 text-sm font-medium text-red-300 hover:bg-red-400/10"
+					>
+						<Trash2 className="size-4" aria-hidden /> Delete project
+					</button>
+				</>
+			) : (
+				<div className="mt-3 grid gap-2">
+					<p className="text-sm text-muted-foreground">
+						Type <Cmd>{slug}</Cmd> to confirm. This deletes{" "}
+						<Cmd>projects/{slug}/</Cmd> for good.
+					</p>
+					<input
+						className="w-full max-w-xs rounded-lg border bg-card px-3 py-2 text-sm outline-none focus:border-red-400/60"
+						value={confirm}
+						onChange={(e) => setConfirm(e.target.value)}
+						placeholder={slug}
+					/>
+					{error && <p className="text-sm text-red-400">{error}</p>}
+					<div className="flex gap-2">
+						<button
+							type="button"
+							onClick={remove}
+							disabled={busy || confirm !== slug}
+							className="inline-flex items-center gap-2 rounded-lg bg-red-500 px-3 py-2 text-sm font-semibold text-white disabled:opacity-40"
+						>
+							{busy ? (
+								<Loader2 className="size-4 animate-spin" aria-hidden />
+							) : (
+								<Trash2 className="size-4" aria-hidden />
+							)}
+							Delete permanently
+						</button>
+						<button
+							type="button"
+							onClick={() => {
+								setOpen(false);
+								setConfirm("");
+								setError("");
+							}}
+							disabled={busy}
+							className="rounded-lg border px-3 py-2 text-sm hover:border-white/40"
+						>
+							Cancel
+						</button>
+					</div>
+				</div>
+			)}
+		</section>
 	);
 }

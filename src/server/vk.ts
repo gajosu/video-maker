@@ -2,7 +2,9 @@ import {
 	cpSync,
 	existsSync,
 	mkdirSync,
+	readdirSync,
 	readFileSync,
+	rmSync,
 	writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
@@ -119,3 +121,41 @@ export const getVideo = createServerFn({ method: "GET" })
 		project: loadProject(data.project),
 		video: loadVideo(data.project, data.video),
 	}));
+
+/** true if a video job or the project-setup chat is still running (their job.json files all share a "status" field) */
+function hasRunningJob(slug: string): boolean {
+	const dir = join(projectDir(slug), "jobs");
+	if (!existsSync(dir)) return false;
+	for (const v of readdirSync(dir)) {
+		const f = join(dir, v, "job.json");
+		if (!existsSync(f)) continue;
+		try {
+			if (JSON.parse(readFileSync(f, "utf8")).status === "working") return true;
+		} catch {}
+	}
+	return false;
+}
+
+/** irreversible: deletes projects/<slug> entirely. Requires typing the slug back to confirm. */
+export const deleteProject = createServerFn({ method: "POST" })
+	.validator((d: unknown) => {
+		const o = (d ?? {}) as Record<string, unknown>;
+		const slug = String(o.slug ?? "");
+		if (!/^[\w-]+$/.test(slug)) throw new Error("invalid project");
+		return { slug, confirm: String(o.confirm ?? "") };
+	})
+	.handler(async ({ data }) => {
+		if (data.slug === "_example")
+			throw new Error("No se puede eliminar el proyecto de ejemplo");
+		const dir = projectDir(data.slug);
+		if (!existsSync(dir))
+			throw new Error(`no existe el proyecto "${data.slug}"`);
+		if (data.confirm !== data.slug)
+			throw new Error("Escribe el nombre del proyecto para confirmar");
+		if (hasRunningJob(data.slug))
+			throw new Error(
+				"Hay un video o una configuración en proceso para este proyecto. Espera a que termine o cancélalo antes de eliminarlo.",
+			);
+		rmSync(dir, { recursive: true, force: true });
+		return { ok: true };
+	});
