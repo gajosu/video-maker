@@ -12,6 +12,8 @@ import { type Asset, addFile, assetFile, assetsDir } from "./assets.ts";
 
 export const FLOW_DURATIONS = [4, 6, 8, 10];
 export const FLOW_IMAGE_MODELS: Record<string, string> = { pro: "GEM_PIX_2", nb2: "NARWHAL", lite: "HARBOR_SEAL" };
+/** Veo quality tiers (video-kit's own model.json tier keys — see tools/flowkit/agent/models.json) */
+const FLOW_VEO_TIERS: Record<string, string> = { "veo-lite": "VK_VEO_LITE", "veo-fast": "VK_VEO_FAST", veo: "VK_VEO_FAST", "veo-quality": "VK_VEO_QUALITY" };
 const IMAGE_ASPECTS: Record<string, string> = { portrait: "9:16", landscape: "16:9", square: "1:1", "9:16": "9:16", "16:9": "16:9", "1:1": "1:1", "3:4": "3:4", "4:3": "4:3" };
 
 const base = () => (process.env.FLOWKIT_URL || "http://127.0.0.1:8100").replace(/\/+$/, "");
@@ -129,8 +131,9 @@ export type FlowVideoOpts = {
 	to?: string;
 	/** reference images ("ingredients": a character, a product, a logo) → reference-to-video */
 	refs?: string | string[];
-	/** omni (Gemini Omni Flash, default) or veo (Veo 3.1; start frame only on Flow's current API) */
-	model?: "omni" | "veo";
+	/** omni (Gemini Omni Flash, default) or a Veo 3.1 quality tier (start frame only on Flow's current API):
+	 * veo-lite (fastest, lowest quality), veo-fast/veo (middle, default Veo tier), veo-quality (Veo Ultra, slowest/best) */
+	model?: "omni" | "veo" | "veo-lite" | "veo-fast" | "veo-quality";
 	fps?: number;
 };
 
@@ -169,7 +172,9 @@ export async function genFlowVideo(p: string, name: string, prompt: string, o: F
 	const refs = refList(o.refs);
 	if (o.to && !o.from) throw new Error("--to (end frame) needs --from (start frame)");
 	if (refs.length && o.from) throw new Error("use either --from (frames) or --refs (references), not both");
-	const model_family = o.model === "veo" ? "veo" : "omni_flash";
+	const model_family = o.model && o.model !== "omni" ? "veo" : "omni_flash";
+	const user_paygate_tier = FLOW_VEO_TIERS[o.model ?? ""];
+	const veoLabel = o.model === "veo-lite" ? "veo-3.1-lite" : o.model === "veo-quality" ? "veo-3.1-quality" : "veo-3.1-fast";
 	const project_id = await flowProject();
 	let sub: Record<string, any>;
 	let mode: string;
@@ -178,13 +183,13 @@ export async function genFlowVideo(p: string, name: string, prompt: string, o: F
 		const reference_media_ids = [];
 		for (const r of refs) reference_media_ids.push(await flowMedia(p, r));
 		console.log(`  ${name}: ${duration}s ${o.shape ?? "portrait"} video from ${mode}…`);
-		sub = await call("/generate-video-refs", { reference_media_ids, prompt, project_id, scene_id: randomUUID(), aspect_ratio, model_family, duration_s: duration, resolution });
+		sub = await call("/generate-video-refs", { reference_media_ids, prompt, project_id, scene_id: randomUUID(), aspect_ratio, model_family, user_paygate_tier, duration_s: duration, resolution });
 	} else if (o.from) {
 		mode = o.to ? `frames ${o.from} → ${o.to}` : `start frame ${o.from}`;
 		const start_image_media_id = await flowMedia(p, o.from);
 		const end_image_media_id = o.to ? await flowMedia(p, o.to) : undefined;
 		console.log(`  ${name}: ${duration}s ${o.shape ?? "portrait"} video from ${mode}…`);
-		sub = await call("/generate-video", { start_image_media_id, end_image_media_id, prompt, project_id, scene_id: randomUUID(), aspect_ratio, model_family, duration_s: duration, resolution });
+		sub = await call("/generate-video", { start_image_media_id, end_image_media_id, prompt, project_id, scene_id: randomUUID(), aspect_ratio, model_family, user_paygate_tier, duration_s: duration, resolution });
 	} else {
 		mode = "text";
 		console.log(`  ${name}: ${duration}s ${o.shape ?? "portrait"} video from text…`);
@@ -193,7 +198,7 @@ export async function genFlowVideo(p: string, name: string, prompt: string, o: F
 	const { url, mediaId } = await pollVideo(name, sub);
 	const f = join(tmpDir(p), `${name}.mp4`);
 	await download(url, f);
-	const a = addFile(p, f, { name, kind: "video", source: { type: "google-flow", prompt, model: `${model_family === "veo" ? "veo-3.1" : "omni-flash"} ${duration}s ${mode}` }, license: "own", credit: "generated with Google Flow", fps: o.fps });
+	const a = addFile(p, f, { name, kind: "video", source: { type: "google-flow", prompt, model: `${model_family === "veo" ? veoLabel : "omni-flash"} ${duration}s ${mode}` }, license: "own", credit: "generated with Google Flow", fps: o.fps });
 	if (mediaId) rememberMedia(p, a, mediaId, project_id);
 	return a;
 }

@@ -193,7 +193,9 @@ export function FlowPanel({
 	const [duration, setDuration] = useState(6);
 	const [vshape, setVshape] = useState<"portrait" | "landscape">("portrait");
 	const [quality, setQuality] = useState<"720p" | "360p">("720p");
-	const [vmodel, setVmodel] = useState<"omni" | "veo">("omni");
+	const [vmodel, setVmodel] = useState<
+		"omni" | "veo-lite" | "veo-fast" | "veo-quality"
+	>("omni");
 	// edit / upscale
 	const [source, setSource] = useState<string[]>([]);
 	const [scale, setScale] = useState<"2k" | "4k">("2k");
@@ -367,10 +369,8 @@ export function FlowPanel({
 				<p className="mt-3 rounded-lg border border-amber-300/30 bg-amber-300/10 p-3 text-xs text-amber-100">
 					{!status.running ? (
 						<>
-							Arranca flowkit en una terminal, dentro de la carpeta del proyecto:{" "}
-							<code className="font-mono">
-								bun run flowkit
-							</code>
+							Arranca flowkit en una terminal, dentro de la carpeta del
+							proyecto: <code className="font-mono">bun run flowkit</code>
 						</>
 					) : !status.connected ? (
 						"Abre https://flow.google.com en Chrome (con la extensión Flow Kit activa) y entra a un proyecto."
@@ -563,8 +563,10 @@ export function FlowPanel({
 										value={vmodel}
 										onChange={setVmodel}
 										options={[
-											["omni", "Omni Flash"],
-											["veo", "Veo 3.1"],
+											["omni", "Omni 1.1 Flash"],
+											["veo-lite", "Veo 3.1 Lite"],
+											["veo-fast", "Veo 3.1 Fast"],
+											["veo-quality", "Veo 3.1 Quality"],
 										]}
 									/>
 								</Pick>

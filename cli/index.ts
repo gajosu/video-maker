@@ -83,7 +83,7 @@ const ASSET_HELP = `bun vk asset <sub>
   search <p> <query…> [--kind image|video|audio] [--source openverse|pexels] [--orientation portrait|landscape|square] [--any-license]
   pick <p> <n> --name x [--kind sfx|music]        download result #n of the last search
   gen <p> <name> "<prompt>" [--kind image|sfx|music] [--shape portrait|landscape|square] [--duration s] [--plan plan.json]
-  gen <p> <name> "<prompt>" --kind video [--duration 4|6|8|10] [--shape portrait|landscape] [--quality 360p|720p] [--from <img> [--to <img>]] [--refs a,b,c] [--model omni|veo]   Google Flow via flowkit (text, frames or reference "ingredients")
+  gen <p> <name> "<prompt>" --kind video [--duration 4|6|8|10] [--shape portrait|landscape] [--quality 360p|720p] [--from <img> [--to <img>]] [--refs a,b,c] [--model omni|veo-lite|veo-fast|veo-quality]   Google Flow via flowkit (text, frames or reference "ingredients"; veo needs --from)
   gen <p> <name> "<prompt>" --via flow [--model pro|nb2|lite] [--shape portrait|landscape|square|3:4|4:3] [--count 1-4] [--refs a,b] [--seed n]   Nano Banana image via flowkit
   edit <p> <new-name> <source> "<change>" [--refs a,b] [--model …]   edit an image with Google Flow
   upscale <p> <new-name> <source> [--quality 2k|4k]     export an image at 2K/4K with Google Flow
@@ -483,7 +483,7 @@ const commands: Record<string, () => Promise<void> | void> = {
 					kind === "sfx" ? await genSfx(p, name, prompt, flags.duration ? Number(flags.duration) : undefined)
 					: kind === "music" ? await genMusic(p, name, prompt, flags.duration ? Number(flags.duration) : 30, typeof flags.plan === "string" ? JSON.parse(readFileSync(flags.plan, "utf8")) : undefined)
 					: kind === "video"
-						? await genFlowVideo(p, name, prompt, { duration: flags.duration ? Number(flags.duration) : undefined, shape: (str("shape") as "portrait" | "landscape") ?? "portrait", quality: str("quality") as "360p" | "720p" | undefined, from: str("from"), to: str("to"), refs: str("refs"), model: str("model") as "omni" | "veo" | undefined, fps: loadProject(p).format.fps })
+						? await genFlowVideo(p, name, prompt, { duration: flags.duration ? Number(flags.duration) : undefined, shape: (str("shape") as "portrait" | "landscape") ?? "portrait", quality: str("quality") as "360p" | "720p" | undefined, from: str("from"), to: str("to"), refs: str("refs"), model: str("model") as "omni" | "veo" | "veo-lite" | "veo-fast" | "veo-quality" | undefined, fps: loadProject(p).format.fps })
 					: str("via") === "flow"
 						? (await genFlowImage(p, name, prompt, { model: str("model"), shape: str("shape"), count: flags.count ? Number(flags.count) : undefined, seed: flags.seed ? Number(flags.seed) : undefined, refs: str("refs") }))[0]
 					: await genImage(p, name, prompt, (str("shape") as "portrait") ?? "portrait");

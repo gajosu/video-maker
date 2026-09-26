@@ -128,7 +128,11 @@ export const flowGenerate = createServerFn({ method: "POST" })
 				quality: oneOf(o.quality, ["720p", "360p"] as const, "720p"),
 				model:
 					mode === "frames"
-						? oneOf(o.model, ["omni", "veo"] as const, "omni")
+						? oneOf(
+								o.model,
+								["omni", "veo-lite", "veo-fast", "veo-quality"] as const,
+								"omni",
+							)
 						: ("omni" as const),
 				from,
 				to,
