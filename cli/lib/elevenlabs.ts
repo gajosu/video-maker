@@ -98,3 +98,15 @@ export async function addShared(owner: string, voiceId: string, name: string): P
 	const r = await call(`/v1/voices/add/${owner}/${voiceId}`, { method: "POST", body: JSON.stringify({ new_name: name }) });
 	return r.voice_id;
 }
+
+/** Instant Voice Clone: create a new account voice from one or more clean audio samples (30s-3min each is plenty).
+ * Only clone voices you have the rights to use. Returns the new voice id to put in script.md `voice:`. */
+export async function cloneVoice(name: string, filePaths: string[], description?: string): Promise<string> {
+	const form = new FormData();
+	form.append("name", name);
+	if (description) form.append("description", description);
+	for (const p of filePaths) form.append("files", new Blob([readFileSync(p)]), p.split("/").pop() ?? "sample.mp3");
+	const res = await fetch(`${API}/v1/voices/add`, { method: "POST", headers: { "xi-api-key": key() }, body: form });
+	if (!res.ok) throw new Error(`ElevenLabs ${res.status}: ${(await res.text()).slice(0, 500)}`);
+	return (await res.json()).voice_id;
+}

@@ -20,7 +20,7 @@ import { genImage, genMusic, genSfx, renderHtml } from "./lib/generate.ts";
 import { type Hit, search } from "./lib/search.ts";
 import { resolveStyle, STYLES } from "./lib/styles.ts";
 import { cuesFromAlignment, cuesFromSilence } from "./lib/cues.ts";
-import { addShared, FREE_LIBRARY_MSG, LATAM_ACCENTS, listShared, listVoices, type SharedVoice, speak, tier } from "./lib/elevenlabs.ts";
+import { addShared, cloneVoice, FREE_LIBRARY_MSG, LATAM_ACCENTS, listShared, listVoices, type SharedVoice, speak, tier } from "./lib/elevenlabs.ts";
 import { run } from "./lib/ffmpeg.ts";
 import { assertSlug, PROJECTS_DIR, projectDir, ROOT, videoDir } from "./lib/paths.ts";
 import { type Cues, listProjects, listVideos, loadProject, loadVideo, readKnowledge } from "./lib/project.ts";
@@ -38,6 +38,7 @@ const HELP = `video-kit — punchy vertical videos from a script
   bun vk voices --latam [--accent a] [--gender g] [--use u] [--search s] [--limit n]   public library, Latin American Spanish (preview links)
   bun vk voices --library [--lang xx] [...]   public library, any language
   bun vk voices add <owner>/<voiceId>   add a library voice to your account; then "voice: <id>" in script.md
+  bun vk voices clone <audioFile...> --name "X" [--desc "d"]   instant voice clone from sample(s) you have rights to; then "voice: <id>" in script.md
   bun vk voice <project> <video>        TTS with timestamps -> vo.mp3 + cues.json
   bun vk cues <project> <video> [--audio f] [--lines N]   cues from any audio file (silence detection)
   bun vk tighten <project> <video> [--max-gap .3]         shorten pauses, rewrite cues
@@ -263,6 +264,16 @@ const commands: Record<string, () => Promise<void> | void> = {
 			if ((await tier()) === "free") throw new Error(FREE_LIBRARY_MSG);
 			const vid = await addShared(owner, id, str("name") ?? `library ${id}`);
 			console.log(`ready: ${vid}\nuse it in a video with "voice: ${vid}" in script.md front matter (or project.json voice.voiceId for all videos)`);
+			return;
+		}
+		if (args[0] === "clone") {
+			const files = args.slice(1);
+			if (!files.length) throw new Error('usage: bun vk voices clone <audioFile...> --name "X" [--desc "d"]');
+			const name = str("name");
+			if (!name) throw new Error("--name is required");
+			for (const f of files) if (!existsSync(f)) throw new Error(`file not found: ${f}`);
+			const vid = await cloneVoice(name, files, str("desc"));
+			console.log(`cloned: ${vid}\nuse it in a video with "voice: ${vid}" in script.md front matter`);
 			return;
 		}
 		if (!flags.latam && !flags.library) {
