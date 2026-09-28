@@ -1,7 +1,7 @@
 // One headless Claude Code session (claude -p, stream-json) behind a chat of the web app: a video job
 // (studio-runner.ts) or a project chat (project-setup.ts). Both log to <dir>/log.jsonl and take messages
 // mid-turn from <dir>/inbox.jsonl through the cli/hooks/studio-inbox.ts hook.
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, join } from "node:path";
@@ -20,6 +20,32 @@ export const alive = (pid?: number) => {
 		return false;
 	}
 };
+
+/** stop a session and everything it started (tool commands: renders, ffmpeg…). Sessions stay in the server's
+ * process group on purpose (Ctrl+C on `bun run dev` still stops them), so the tree is walked with `ps`. */
+export function stopProcess(pid?: number) {
+	if (!pid || !alive(pid)) return;
+	const kids = new Map<number, number[]>();
+	const ps = spawnSync("ps", ["-A", "-o", "pid=,ppid="], { encoding: "utf8" });
+	for (const line of (ps.stdout ?? "").split("\n")) {
+		const [c, parent] = line.trim().split(/\s+/).map(Number);
+		if (c && parent) kids.set(parent, [...(kids.get(parent) ?? []), c]);
+	}
+	const tree: number[] = [];
+	const walk = (p: number) => {
+		for (const c of kids.get(p) ?? []) {
+			walk(c);
+			tree.push(c);
+		}
+	};
+	walk(pid);
+	// the session first (so it doesn't react to its tools dying), then its commands, deepest first
+	for (const p of [pid, ...tree]) {
+		try {
+			process.kill(p, "SIGTERM");
+		} catch {}
+	}
+}
 
 const claudeBin = () => {
 	if (process.env.CLAUDE_BIN) return process.env.CLAUDE_BIN;
@@ -63,6 +89,8 @@ export type SessionJob = {
 	pid?: number;
 	error?: string;
 	cost: number;
+	/** set by interrupt(): the run was stopped on purpose to hand Claude the pending messages now */
+	interrupted?: boolean;
 };
 
 export type SessionResult = { ok: boolean; text: string };
@@ -82,7 +110,13 @@ export type SessionOpts<J extends SessionJob> = {
 	onToolResult?: (text: string) => void;
 	/** the run ended and was not cancelled: pid is cleared, session and cost merged; set the status and save */
 	onFinish: (j: J, res: SessionResult) => void;
+	/** the run was interrupted for "Enviar ahora": start the next one (the pending messages go into its prompt) */
+	onInterrupted: (j: J) => void;
 };
+
+/** the prompt of the run that follows an interruption; the pending group is appended by runSession */
+export const INTERRUPTED_PROMPT =
+	"El usuario interrumpió tu paso actual para enviarte los mensajes de abajo. Tenlos en cuenta ya y retoma el trabajo desde donde quedó: revisa qué alcanzó a completarse (el comando que estaba corriendo se cortó y puede haber quedado a medias, p. ej. un render o una descarga) y repítelo si hace falta.";
 
 /** start (or resume) a Claude session; returns immediately. Messages still queued go into the prompt. */
 export function runSession<J extends SessionJob>(o: SessionOpts<J>) {
@@ -211,6 +245,12 @@ export function runSession<J extends SessionJob>(o: SessionOpts<J>) {
 		j.pid = undefined;
 		j.session = job.session ?? j.session;
 		j.cost = job.cost;
+		if (j.interrupted) {
+			j.interrupted = undefined;
+			flush();
+			o.onInterrupted(j);
+			return;
+		}
 		const res = lastResult as SessionResult | null;
 		if (!res?.ok || pending.trim() !== res.text.trim()) flush();
 		if (res?.ok) {

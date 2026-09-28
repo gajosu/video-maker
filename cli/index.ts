@@ -767,7 +767,8 @@ const commands: Record<string, () => Promise<void> | void> = {
 				assertSlug(v, "video");
 				const j = jobInfo(p, v);
 				if (!j) throw new Error(`no studio job for ${p}/${v}`);
-				queueMessage(join(projectDir(p), "jobs", v), text);
+				// the director's messages go out at the video's next step (like "Enviar ahora" in the web)
+				queueMessage(join(projectDir(p), "jobs", v), text, [], { now: true });
 				console.log(
 					j.status === "working" || j.status === "queued"
 						? `queued for ${v}: it gets it after its next step`

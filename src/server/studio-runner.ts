@@ -16,12 +16,19 @@ import {
 	logTo,
 	queueMessage as queueIn,
 	readLogFrom,
+	sendQueuedNow,
+	unqueueMessage,
 } from "../../cli/lib/inbox.ts";
 import { withLockSync } from "../../cli/lib/lock.ts";
 import { PROJECTS_DIR, projectDir } from "../../cli/lib/paths.ts";
 import { listProjects } from "../../cli/lib/project.ts";
 import { mediaDiff, mediaSnap, searchResults } from "./media.ts";
-import { alive, runSession } from "./session.ts";
+import {
+	alive,
+	INTERRUPTED_PROMPT,
+	runSession,
+	stopProcess,
+} from "./session.ts";
 
 export { CLAUDE_MODEL } from "./session.ts";
 export type { LogEvent };
@@ -60,6 +67,8 @@ export type Job = {
 	music?: string;
 	/** the batch this video belongs to (cli/lib/batch.ts) */
 	batch?: string;
+	/** "Enviar ahora" stopped the current run on purpose (session.ts resumes it with the pending messages) */
+	interrupted?: boolean;
 	/** queued: the run to start when a slot frees up */
 	next?: { phase: Phase; prompt: string; at: number };
 	error?: string;
@@ -82,13 +91,35 @@ export const log = (p: string, v: string, k: LogKind, x: string) =>
 	logTo(jobDir(p, v), k, x);
 export const readLog = (p: string, v: string, n = 300) =>
 	readLogFrom(jobDir(p, v), n);
-/** a chat message sent while the job works: Claude gets it after its next tool call */
+/** a chat message sent while the job works: it joins the pending group (see cli/lib/inbox.ts) */
 export const queueMessage = (
 	p: string,
 	v: string,
 	text: string,
 	refs: string[] = [],
 ) => queueIn(jobDir(p, v), text, refs);
+
+export const unqueue = (p: string, v: string, id: string) =>
+	unqueueMessage(jobDir(p, v), id);
+/** "Enviar ahora": stop the step Claude is in and resume right away with the pending group. A job that isn't
+ *  running gets the group when it starts (queued) or from the scheduler (idle). Returns how many were pending. */
+export function sendNow(p: string, v: string): number {
+	const dir = jobDir(p, v);
+	const j = readJob(p, v);
+	if (!j || j.status !== "working" || !alive(j.pid) || !hasInbox(dir)) {
+		return sendQueuedNow(dir);
+	}
+	const n = sendQueuedNow(dir);
+	j.interrupted = true;
+	saveJob(j);
+	logTo(
+		dir,
+		"note",
+		`Interrumpiste el paso actual para enviarle ${n > 1 ? `tus ${n} mensajes` : "tu mensaje"}.`,
+	);
+	stopProcess(j.pid);
+	return n;
+}
 
 const readRaw = (p: string, v: string): Job | null =>
 	existsSync(jobFile(p, v))
@@ -219,6 +250,11 @@ function start(job: Job, phase: Phase, prompt: string) {
 			mediaDiff(media, p, v, snap, now);
 			snap = now;
 		},
+		// "Enviar ahora" stopped this run: resume the same phase with the pending group (runSession adds it)
+		onInterrupted: (j) => {
+			saveJob(j);
+			start(j, phase, INTERRUPTED_PROMPT);
+		},
 		onFinish: (j, res) => {
 			if (res.ok) {
 				j.status =
@@ -239,7 +275,7 @@ function start(job: Job, phase: Phase, prompt: string) {
 export function cancel(p: string, v: string) {
 	const j = readJob(p, v);
 	if (!j) return;
-	if (j.pid && alive(j.pid)) process.kill(j.pid, "SIGTERM");
+	stopProcess(j.pid);
 	j.status = "cancelled";
 	j.pid = undefined;
 	j.next = undefined;

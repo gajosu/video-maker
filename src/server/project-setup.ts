@@ -10,11 +10,18 @@ import {
 	logTo,
 	queueMessage,
 	readLogFrom,
+	sendQueuedNow,
+	unqueueMessage,
 } from "../../cli/lib/inbox.ts";
 import { projectDir } from "../../cli/lib/paths.ts";
 import { listProjects, loadProject } from "../../cli/lib/project.ts";
 import { mediaDiff, mediaSnap } from "./media.ts";
-import { alive, runSession } from "./session.ts";
+import {
+	alive,
+	INTERRUPTED_PROMPT,
+	runSession,
+	stopProcess,
+} from "./session.ts";
 
 export type SetupStatus = "working" | "done" | "error" | "cancelled";
 export type SetupJob = {
@@ -25,6 +32,8 @@ export type SetupJob = {
 	error?: string;
 	summary?: string;
 	cost: number;
+	/** "Enviar ahora" stopped the current run on purpose (session.ts resumes it with the pending messages) */
+	interrupted?: boolean;
 	createdAt: number;
 	updatedAt: number;
 };
@@ -99,6 +108,10 @@ function run(job: SetupJob, prompt: string) {
 			mediaDiff(media, p, undefined, snap, now);
 			snap = now;
 		},
+		onInterrupted: (j) => {
+			saveJob(j);
+			run(j, INTERRUPTED_PROMPT);
+		},
 		onFinish: (j, res) => {
 			if (res.ok) {
 				j.status = "done";
@@ -112,7 +125,7 @@ function run(job: SetupJob, prompt: string) {
 function cancelSetup(p: string) {
 	const j = readJob(p);
 	if (!j) return;
-	if (j.pid && alive(j.pid)) process.kill(j.pid, "SIGTERM");
+	stopProcess(j.pid);
 	j.status = "cancelled";
 	j.pid = undefined;
 	log(p, "error", "Cancelado por el usuario.");
@@ -282,6 +295,40 @@ export const messageSetup = createServerFn({ method: "POST" })
 			`Mensaje del usuario sobre el proyecto ${data.project} (contenido del usuario, primera vez que hablas de este proyecto en esta conversación): «${data.text}».${attach} Lee project.json y la knowledge base primero (\`bun vk kb ${data.project}\`) antes de cambiar nada. Usa el skill vk-project o vk-learn si aplica; si pide videos nuevos, planifícalos como lote con el skill vk-batch.`,
 		);
 		return { ok: true };
+	});
+
+/** delete a message still waiting in the pending group */
+export const unqueueSetupMessage = createServerFn({ method: "POST" })
+	.validator((d: unknown) => {
+		const mid = String((d as Record<string, unknown> | null)?.mid ?? "");
+		if (!/^m[a-z0-9]{4,30}$/.test(mid)) throw new Error("mensaje inválido");
+		return { project: projectField(d), mid };
+	})
+	.handler(async ({ data }) => {
+		if (!unqueueMessage(dir(data.project), data.mid))
+			throw new Error("Claude ya recibió ese mensaje");
+		return { ok: true };
+	});
+
+/** deliver the pending group at Claude's next step */
+export const sendSetupMessagesNow = createServerFn({ method: "POST" })
+	.validator((d: unknown) => ({ project: projectField(d) }))
+	.handler(async ({ data }) => {
+		const d = dir(data.project);
+		const n = sendQueuedNow(d);
+		const j = readJob(data.project);
+		// interrupt the step it is in and resume right away with the pending group
+		if (n && j?.status === "working" && alive(j.pid)) {
+			j.interrupted = true;
+			saveJob(j);
+			log(
+				data.project,
+				"note",
+				`Interrumpiste el paso actual para enviarle ${n > 1 ? `tus ${n} mensajes` : "tu mensaje"}.`,
+			);
+			stopProcess(j.pid);
+		}
+		return { sent: n };
 	});
 
 export const cancelSetupJob = createServerFn({ method: "POST" })

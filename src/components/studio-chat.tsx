@@ -13,6 +13,7 @@ import {
 	Search,
 	Send,
 	Square,
+	Trash2,
 	Wrench,
 	X,
 } from "lucide-react";
@@ -21,7 +22,14 @@ import { fileUrl } from "#/lib/format";
 import { PHASE_ES, pkgLogToEvents, pkgStepText } from "#/lib/studio";
 import { cn } from "#/lib/utils";
 import { getBatch, launchBatch } from "#/server/batch";
-import { cancelJob, getChat, getPkgChat, messageJob } from "#/server/studio";
+import {
+	cancelJob,
+	getChat,
+	getPkgChat,
+	messageJob,
+	sendJobMessagesNow,
+	unqueueJobMessage,
+} from "#/server/studio";
 
 const field =
 	"w-full rounded-lg border bg-card px-3 py-2 text-sm outline-none focus:border-white/40";
@@ -424,6 +432,8 @@ export function Activity({
 	placeholder: placeholderProp,
 	queue,
 	header = true,
+	onUnqueue,
+	onSendNow,
 }: {
 	project: string;
 	video?: string;
@@ -439,6 +449,9 @@ export function Activity({
 	queue?: boolean;
 	/** the "Chat con Claude" title bar (off when the container has its own) */
 	header?: boolean;
+	/** delete a pending message / deliver the pending group now (default: the video job's) */
+	onUnqueue?: (mid: string) => Promise<unknown>;
+	onSendNow?: () => Promise<unknown>;
 }) {
 	const router = useRouter();
 	const [msg, setMsg] = useState("");
@@ -453,7 +466,62 @@ export function Activity({
 	// sessions take messages mid-turn (queued, delivered after Claude's next tool call)
 	const canQueue = queue ?? !onSend;
 	const locked = working && !canQueue;
-	const seen = new Set(log.filter((e) => e.k === "seen").map((e) => e.x));
+	// messages sent while Claude works wait as one pending group (cli/lib/inbox.ts): shown in a tray above the
+	// input until delivered ("seen", then drawn where Claude got them, grouped) or deleted ("unqueued")
+	const settled = new Set(
+		log.filter((e) => e.k === "seen" || e.k === "unqueued").map((e) => e.x),
+	);
+	const sent = new Map(
+		log.flatMap((e) => (e.k === "you" && e.mid ? [[e.mid, e] as const] : [])),
+	);
+	const pending = log.filter(
+		(e) => e.k === "you" && e.mid && !settled.has(e.mid),
+	);
+	const urgent =
+		pending.length > 0 &&
+		log.some((e) => e.k === "now" && e.t >= (pending[0]?.t ?? 0));
+	const rows: ({ e: Ev } | { group: Ev[]; key: number })[] = [];
+	for (const e of log) {
+		if (e.k === "unqueued" || e.k === "now" || (e.k === "you" && e.mid))
+			continue;
+		if (e.k === "seen") {
+			const m = sent.get(e.x);
+			if (!m) continue;
+			const last = rows.at(-1);
+			if (last && "group" in last) last.group.push(m);
+			else rows.push({ group: [m], key: e.id });
+			continue;
+		}
+		rows.push({ e });
+	}
+	const [queueBusy, setQueueBusy] = useState("");
+	const unqueue = async (mid: string) => {
+		setQueueBusy(mid);
+		setError("");
+		try {
+			await (onUnqueue?.(mid) ??
+				unqueueJobMessage({ data: { project, video, mid } }));
+		} catch (err) {
+			setError(err instanceof Error ? err.message : String(err));
+		} finally {
+			setQueueBusy("");
+			onSent?.();
+			router.invalidate();
+		}
+	};
+	const sendNow = async () => {
+		setQueueBusy("now");
+		setError("");
+		try {
+			await (onSendNow?.() ?? sendJobMessagesNow({ data: { project, video } }));
+		} catch (err) {
+			setError(err instanceof Error ? err.message : String(err));
+		} finally {
+			setQueueBusy("");
+			onSent?.();
+			router.invalidate();
+		}
+	};
 	const n = log.length;
 
 	const upload = async (files: FileList | null) => {
@@ -536,7 +604,7 @@ export function Activity({
 				? "Pide un cambio al video…"
 				: status === "working"
 					? canQueue
-						? "Escribe cuando quieras: lo toma sin detener lo que está haciendo…"
+						? "Escribe cuando quieras: queda pendiente y le llega sin cortar lo que hace…"
 						: "Espera a que termine este paso…"
 					: "Dile que continúe o qué corregir…");
 
@@ -556,28 +624,38 @@ export function Activity({
 				{log.length === 0 && empty && (
 					<p className="text-muted-foreground">{empty}</p>
 				)}
-				{log.map((e) =>
-					e.k === "seen" ? null : e.k === "you" ? (
+				{rows.map((r) => {
+					if ("group" in r)
+						return (
+							<div
+								key={`g${r.key}`}
+								className="ml-8 rounded-lg bg-muted px-3 py-2"
+							>
+								{r.group.length > 1 && (
+									<div className="mb-1 text-[11px] text-muted-foreground">
+										{r.group.length} mensajes que dejaste mientras trabajaba
+									</div>
+								)}
+								<div className="grid gap-1.5">
+									{r.group.map((m) => (
+										<div key={m.id} className="whitespace-pre-wrap">
+											{m.x}
+										</div>
+									))}
+								</div>
+								<div className="mt-1 flex items-center gap-1 text-[11px] text-muted-foreground">
+									<CheckCheck className="size-3" aria-hidden /> Claude{" "}
+									{r.group.length > 1 ? "los recibió juntos" : "lo recibió"}
+								</div>
+							</div>
+						);
+					const { e } = r;
+					return e.k === "you" ? (
 						<div
 							key={e.id}
 							className="ml-8 whitespace-pre-wrap rounded-lg bg-muted px-3 py-2"
 						>
 							{e.x}
-							{e.mid && (
-								<div className="mt-1 flex items-center gap-1 text-[11px] text-muted-foreground">
-									{seen.has(e.mid) ? (
-										<>
-											<CheckCheck className="size-3" aria-hidden /> Claude lo
-											recibió
-										</>
-									) : (
-										<>
-											<Clock className="size-3" aria-hidden /> En cola: lo toma
-											tras su próximo paso
-										</>
-									)}
-								</div>
-							)}
 						</div>
 					) : e.k === "media" ? (
 						<div key={e.id}>
@@ -603,6 +681,13 @@ export function Activity({
 						>
 							{md(e.x)}
 						</div>
+					) : e.k === "note" ? (
+						<div
+							key={e.id}
+							className="flex items-center justify-center gap-1.5 text-center text-[11px] text-violet-200/80"
+						>
+							<Square className="size-2.5" aria-hidden /> {e.x}
+						</div>
 					) : e.k === "error" ? (
 						<div
 							key={e.id}
@@ -614,8 +699,8 @@ export function Activity({
 						<div key={e.id} className="whitespace-pre-wrap text-foreground/90">
 							{md(e.x)}
 						</div>
-					),
-				)}
+					);
+				})}
 				{working && (
 					<div className="flex items-center gap-2 text-xs text-muted-foreground">
 						<Loader2 className="size-3 animate-spin" aria-hidden />{" "}
@@ -627,6 +712,70 @@ export function Activity({
 			</div>
 			<form onSubmit={send} className="border-t p-3">
 				{error && <p className="mb-2 text-xs text-red-400">{error}</p>}
+				{pending.length > 0 && (
+					<div className="mb-2 rounded-lg border border-violet-300/30 bg-violet-300/5 p-2">
+						<div className="flex items-center justify-between gap-2">
+							<div className="flex min-w-0 items-center gap-1.5 text-xs">
+								<Clock
+									className="size-3 shrink-0 text-violet-200"
+									aria-hidden
+								/>
+								<span className="font-medium text-violet-100">
+									Pendientes ({pending.length})
+								</span>
+								<span className="truncate text-muted-foreground">
+									{urgent
+										? "· interrumpiendo el paso actual para enviarlos…"
+										: working
+											? "· se envían juntos cuando termine este paso"
+											: "· se envían al empezar el siguiente turno"}
+								</span>
+							</div>
+							{!urgent && working && (
+								<button
+									type="button"
+									onClick={sendNow}
+									disabled={!!queueBusy}
+									title="Interrumpe lo que está haciendo Claude y le envía estos mensajes ya"
+									className="inline-flex shrink-0 items-center gap-1 rounded-md bg-violet-300/20 px-2 py-1 text-[11px] font-medium text-violet-100 hover:bg-violet-300/30 disabled:opacity-50"
+								>
+									{queueBusy === "now" ? (
+										<Loader2 className="size-3 animate-spin" aria-hidden />
+									) : (
+										<Send className="size-3" aria-hidden />
+									)}
+									Enviar ahora
+								</button>
+							)}
+						</div>
+						<ul className="mt-1.5 grid max-h-32 gap-1 overflow-y-auto">
+							{pending.map((m) => (
+								<li
+									key={m.mid}
+									className="flex items-start gap-2 rounded-md bg-background/60 px-2 py-1.5 text-xs"
+								>
+									<span className="line-clamp-2 min-w-0 flex-1 whitespace-pre-wrap">
+										{m.x}
+									</span>
+									<button
+										type="button"
+										onClick={() => m.mid && unqueue(m.mid)}
+										disabled={!!queueBusy}
+										className="shrink-0 rounded p-0.5 text-muted-foreground hover:text-red-300 disabled:opacity-40"
+										aria-label="Borrar mensaje pendiente"
+										title="Borrar (aún no se envió)"
+									>
+										{queueBusy === m.mid ? (
+											<Loader2 className="size-3.5 animate-spin" aria-hidden />
+										) : (
+											<Trash2 className="size-3.5" aria-hidden />
+										)}
+									</button>
+								</li>
+							))}
+						</ul>
+					</div>
+				)}
 				{pendingRefs.length > 0 && (
 					<div className="mb-2 flex flex-wrap gap-1.5">
 						{pendingRefs.map((r) => (

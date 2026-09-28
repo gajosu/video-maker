@@ -147,7 +147,7 @@ Each reference lands in `projects/<p>/references/<name>/` with `hook.jpg` (first
 
 ## Batches (several videos at once)
 
-Ask the floating chat for several videos ("haz 4 reels sobre…"): it plans them as a **batch** (skill `vk-batch`) and shows a card with «Lanzar lote». In the batch panel you edit the draft, launch it, and approve each script with its voice (or all at once). Up to `VK_STUDIO_MAX_JOBS` videos (default 3) are built in parallel, each in its own Claude session; the rest wait in the queue. Messages you send to any chat while Claude works are delivered mid-turn, without stopping it.
+Ask the floating chat for several videos ("haz 4 reels sobre…"): it plans them as a **batch** (skill `vk-batch`) and shows a card with «Lanzar lote». In the batch panel you edit the draft, launch it, and approve each script with its voice (or all at once). Up to `VK_STUDIO_MAX_JOBS` videos (default 3) are built in parallel, each in its own Claude session; the rest wait in the queue. Messages you send to any chat while Claude works wait as a pending group above the input (delete any of them until it goes out); they reach Claude together when it finishes its current step without stopping it, or right away if you press «Enviar ahora», which interrupts the step Claude is in (and the command it is running) and resumes with your messages.
 
 ```bash
 bun vk batch create mybrand --file plan.json [--launch]   # {"title","defaults":{…},"items":[{"title","idea"},…]}

@@ -14,7 +14,9 @@ import {
 	cancelSetupJob,
 	getSetup,
 	messageSetup,
+	sendSetupMessagesNow,
 	startSetup,
+	unqueueSetupMessage,
 } from "#/server/project-setup";
 
 export const Route = createFileRoute("/p/$project/setup")({
@@ -242,6 +244,8 @@ function ProjectSetup() {
 						log={d.log}
 						status={d.status}
 						queue
+						onUnqueue={(mid) => unqueueSetupMessage({ data: { project, mid } })}
+						onSendNow={() => sendSetupMessagesNow({ data: { project } })}
 						onSend={(text, refs) =>
 							messageSetup({ data: { project, text, refs } })
 						}
@@ -249,7 +253,7 @@ function ProjectSetup() {
 						className="h-[calc(100dvh-16rem)]"
 						placeholder={
 							d.status === "working"
-								? "Escribe cuando quieras: lo toma sin detener lo que está haciendo…"
+								? "Escribe cuando quieras: queda pendiente y le llega sin cortar lo que hace…"
 								: "Pide un cambio (colores, tono, un dato que falta…)"
 						}
 					/>

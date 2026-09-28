@@ -10,7 +10,13 @@ import { Activity } from "#/components/studio-chat";
 import { PHASE_ES, STATUS_ES } from "#/lib/studio";
 import { cn } from "#/lib/utils";
 import { getWork } from "#/server/batch";
-import { cancelSetupJob, getSetup, messageSetup } from "#/server/project-setup";
+import {
+	cancelSetupJob,
+	getSetup,
+	messageSetup,
+	sendSetupMessagesNow,
+	unqueueSetupMessage,
+} from "#/server/project-setup";
 import { cancelJob, getChat, getRunningJob, messageJob } from "#/server/studio";
 import { getProjects } from "#/server/vk";
 
@@ -299,6 +305,16 @@ export function GlobalChat() {
 							status={d?.status ?? ""}
 							queue
 							header={false}
+							onUnqueue={
+								mode === "project"
+									? (mid) => unqueueSetupMessage({ data: { project, mid } })
+									: undefined
+							}
+							onSendNow={
+								mode === "project"
+									? () => sendSetupMessagesNow({ data: { project } })
+									: undefined
+							}
 							onSend={(text, refs) =>
 								mode === "video"
 									? messageJob({ data: { project, video, text, refs } })
@@ -313,7 +329,7 @@ export function GlobalChat() {
 							}
 							placeholder={
 								working
-									? "Escribe cuando quieras: lo toma sin detener lo que está haciendo…"
+									? "Escribe cuando quieras: queda pendiente y le llega sin cortar lo que hace…"
 									: mode === "video"
 										? "Pide un cambio al video…"
 										: "Pide cambios al proyecto o un lote de videos…"

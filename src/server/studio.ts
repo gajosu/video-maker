@@ -28,6 +28,8 @@ import {
 	readLog,
 	run,
 	saveJob,
+	sendNow,
+	unqueue,
 } from "./studio-runner.ts";
 
 const STYLES = ["punchy", "motion", "story", "vox", "anthem", "dev", "ugc"];
@@ -396,6 +398,26 @@ export const getRunningJob = createServerFn({ method: "GET" }).handler(
 		return setup ? { project: setup, video: "" } : null;
 	},
 );
+
+const midOf = (d: unknown) => {
+	const mid = text(obj(d).mid, 40);
+	if (!/^m[a-z0-9]{4,30}$/.test(mid)) throw new Error("mensaje inválido");
+	return { ...ids(d), mid };
+};
+
+/** delete a message still waiting in the pending group */
+export const unqueueJobMessage = createServerFn({ method: "POST" })
+	.validator(midOf)
+	.handler(async ({ data }) => {
+		if (!unqueue(data.project, data.video, data.mid))
+			throw new Error("Claude ya recibió ese mensaje");
+		return { ok: true };
+	});
+
+/** deliver the pending group at Claude's next step instead of when it finishes the current one */
+export const sendJobMessagesNow = createServerFn({ method: "POST" })
+	.validator(ids)
+	.handler(async ({ data }) => ({ sent: sendNow(data.project, data.video) }));
 
 export const cancelJob = createServerFn({ method: "POST" })
 	.validator(ids)
