@@ -162,6 +162,7 @@ async function mixAudio(p: string, v: string, events: Record<string, number[]>) 
 		music,
 		samples: sampleMap(p),
 		master,
+		cutSfx: video.cut !== "none",
 	});
 	return music.includes("/") ? `music ${music.split("/").pop()}` : `music preset "${music}"`;
 }

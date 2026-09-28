@@ -55,7 +55,7 @@ Functions `o => [times relative to scene]`. The audio mixer (`cli/lib/audio.ts`)
 | `impact` | big hit; **the first one** is the music drop (beat stops after line 2, riser into it, beat resumes 0.5 s later) |
 | `price` | soft impact + two dings |
 | `cta` | two bright dings |
-| (cut) | every scene change gets a whoosh automatically |
+| (cut) | every scene change gets a whoosh automatically (script.md `cut: none` disables it for that video) |
 
 ## Primitives (`primitives.js`)
 

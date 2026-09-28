@@ -137,11 +137,13 @@ export type MixInput = {
 	master?: [number, number][];
 	/** event name -> sample file (overrides / extends the synth SFX) */
 	samples?: Record<string, string>;
+	/** false = skip the automatic whoosh on every scene cut (default true) */
+	cutSfx?: boolean;
 };
 
 export const PRESETS = ["beat", "pulse", "ambient", "pluck", "none"] as const;
 
-export function mix({ D, L, vo, events: ev, format, music: musicSpec = "beat", samples = {}, master = [] }: MixInput): Float32Array {
+export function mix({ D, L, vo, events: ev, format, music: musicSpec = "beat", samples = {}, master = [], cutSfx = true }: MixInput): Float32Array {
 	const out = new Float32Array(N(D + 1.5));
 	const put = (sig: Float32Array, t: number, g = 1) => {
 		const i = Math.max(0, Math.floor(t * SR));
@@ -268,11 +270,13 @@ export function mix({ D, L, vo, events: ev, format, music: musicSpec = "beat", s
 			else synth[k]?.(t);
 		}
 	}
-	const cutS = sample("whoosh");
-	for (const t of cut.slice(1)) {
-		if (t === err) continue;
-		if (cutS) put(cutS, t - 0.1, 0.6);
-		else put(whoosh(), t - 0.15);
+	if (cutSfx) {
+		const cutS = sample("whoosh");
+		for (const t of cut.slice(1)) {
+			if (t === err) continue;
+			if (cutS) put(cutS, t - 0.1, 0.6);
+			else put(whoosh(), t - 0.15);
+		}
 	}
 	if (bed) for (let i = 0; i < bed.length && i < out.length; i++) out[i] += bed[i];
 

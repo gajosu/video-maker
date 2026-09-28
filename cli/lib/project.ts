@@ -214,6 +214,8 @@ export type VideoInfo = {
 	voice?: string;
 	/** script.md `master:` mix level automation, e.g. "L5:-3, pose:0, descarga:+3.5" (Ln = line n start, or a {#mark}) */
 	master?: string;
+	/** script.md `cut:` override: "none" drops the automatic whoosh on every scene cut */
+	cut?: string;
 	script: Script | null;
 	cues: Cues | null;
 	files: { vo?: string; mix?: string; out?: string; stills: string[] };
@@ -252,6 +254,7 @@ export function loadVideo(p: string, v: string): VideoInfo {
 		music: typeof meta.music === "string" ? meta.music : undefined,
 		voice: typeof meta.voice === "string" ? meta.voice : undefined,
 		master: typeof meta.master === "string" ? meta.master : undefined,
+		cut: typeof meta.cut === "string" ? meta.cut : undefined,
 		script,
 		cues,
 		files: {
