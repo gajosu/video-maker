@@ -241,6 +241,7 @@ function ProjectSetup() {
 						project={project}
 						log={d.log}
 						status={d.status}
+						queue
 						onSend={(text, refs) =>
 							messageSetup({ data: { project, text, refs } })
 						}
@@ -248,7 +249,7 @@ function ProjectSetup() {
 						className="h-[calc(100dvh-16rem)]"
 						placeholder={
 							d.status === "working"
-								? "Espera a que termine…"
+								? "Escribe cuando quieras: lo toma sin detener lo que está haciendo…"
 								: "Pide un cambio (colores, tono, un dato que falta…)"
 						}
 					/>

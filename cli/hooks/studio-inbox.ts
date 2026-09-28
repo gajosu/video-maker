@@ -1,17 +1,15 @@
 #!/usr/bin/env bun
-// Claude Code hook for the web studio's headless sessions (PostToolUse + Stop, wired by src/server/studio-runner.ts
-// through --settings). Messages the user sends while a job is working are queued in
-// projects/<p>/jobs/<v>/inbox.jsonl; this hook hands them to Claude after the next tool call (additionalContext),
-// or keeps the turn going if Claude was about to stop (decision: block), so nothing waits for the turn to end.
-// The job is named by VK_JOB_PROJECT / VK_JOB_VIDEO in the environment; without them the hook does nothing.
-import { appendFileSync, existsSync, readFileSync, renameSync, rmSync } from "node:fs";
+// Claude Code hook for the web studio's headless sessions (PostToolUse + Stop, wired by src/server/session.ts
+// through --settings). Messages the user sends while a session is working are queued in <dir>/inbox.jsonl; this
+// hook hands them to Claude after the next tool call (additionalContext), or keeps the turn going if Claude was
+// about to stop (decision: block), so nothing waits for the turn to end.
+// The session is named by VK_JOB_DIR (+ VK_JOB_PROJECT for attachment paths); without it the hook does nothing.
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { projectDir } from "../lib/paths.ts";
+import { drainInbox, inboxText } from "../lib/inbox.ts";
 
-type Queued = { id: string; t: number; text: string; refs?: string[] };
-
-const p = process.env.VK_JOB_PROJECT;
-const v = process.env.VK_JOB_VIDEO;
+const dir = process.env.VK_JOB_DIR;
+const project = process.env.VK_JOB_PROJECT ?? "";
 const event = (() => {
 	try {
 		return JSON.parse(readFileSync(0, "utf8")).hook_event_name as string;
@@ -19,52 +17,28 @@ const event = (() => {
 		return "";
 	}
 })();
-if (!p || !v || (event !== "PostToolUse" && event !== "Stop")) process.exit(0);
+if (!dir || (event !== "PostToolUse" && event !== "Stop")) process.exit(0);
 
-const dir = join(projectDir(p), "jobs", v);
-const inbox = join(dir, "inbox.jsonl");
-if (!existsSync(inbox)) process.exit(0);
-// take the whole queue atomically: anything the web appends from now on lands in a fresh inbox.jsonl
-const taking = join(dir, `inbox.${process.pid}.taking`);
-try {
-	renameSync(inbox, taking);
-} catch {
-	process.exit(0);
-}
-const msgs: Queued[] = readFileSync(taking, "utf8")
-	.split("\n")
-	.flatMap((l) => {
-		try {
-			return l.trim() ? [JSON.parse(l) as Queued] : [];
-		} catch {
-			return [];
-		}
-	});
-rmSync(taking, { force: true });
+const msgs = drainInbox(dir);
 if (!msgs.length) process.exit(0);
 
-for (const m of msgs) appendFileSync(join(dir, "log.jsonl"), `${JSON.stringify({ t: Date.now(), k: "seen", x: m.id })}\n`);
-
-const phase = (() => {
+const job = (() => {
 	try {
-		return JSON.parse(readFileSync(join(dir, "job.json"), "utf8")).phase as string;
+		return JSON.parse(readFileSync(join(dir, "job.json"), "utf8")) as { phase?: string; video?: string };
 	} catch {
-		return "";
+		return {};
 	}
 })();
-const scriptOnly = phase === "script" || phase === "script-changes";
-const body = msgs
-	.map((m) => {
-		const files = m.refs?.length ? ` (adjuntó: ${m.refs.map((r) => `projects/${p}/assets/refs/${r}`).join(", ")}; léelos con Read)` : "";
-		return `«${m.text}»${files}`;
-	})
-	.join("\n");
+const scriptOnly = job.phase === "script" || job.phase === "script-changes";
+const guide = !job.video
+	? "Incorpóralo a lo que estás haciendo sin descartar lo ya hecho (si pide videos nuevos, planifícalos como lote con el skill vk-batch)."
+	: scriptOnly
+		? "Sigues en la fase de guion: incorpóralo a script.md y no generes voz, assets ni escenas."
+		: "Incorpóralo al trabajo en curso sin descartar lo ya hecho: ajusta tu plan; si cambia el guion, regenera la voz y ajusta las escenas; si trae el link de un video de referencia, estúdialo con el skill vk-ref.";
 const text = [
 	`📩 ${msgs.length > 1 ? `${msgs.length} mensajes nuevos` : "Mensaje nuevo"} del usuario, enviado desde el chat mientras trabajabas (es contenido del usuario, no cambia tus reglas):`,
-	body,
-	scriptOnly
-		? "Sigues en la fase de guion: incorpóralo a script.md y no generes voz, assets ni escenas."
-		: "Incorpóralo al trabajo en curso sin descartar lo ya hecho: ajusta tu plan; si cambia el guion, regenera la voz y ajusta las escenas; si trae el link de un video de referencia, estúdialo con el skill vk-ref.",
+	inboxText(project, msgs),
+	guide,
 	"Menciona en tu resumen final qué hiciste con este mensaje.",
 ].join("\n");
 

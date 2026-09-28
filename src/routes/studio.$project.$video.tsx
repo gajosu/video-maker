@@ -19,7 +19,7 @@ function JobPage() {
 	const { project, video: slug } = Route.useParams();
 	const { job, log, video, voices, plan, projectVoice } = Route.useLoaderData();
 	const router = useRouter();
-	const working = job.status === "working";
+	const working = job.status === "working" || job.status === "queued";
 
 	useEffect(() => {
 		if (!working) return;
@@ -66,7 +66,11 @@ function JobPage() {
 					<div className="mt-1 flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
 						<span className={`size-2 rounded-full ${dot}`} aria-hidden />
 						<span className="text-foreground">
-							{working ? (PHASE_ES[job.phase] ?? label) : label}
+							{job.status === "queued"
+								? "En cola: empieza cuando termine otro video"
+								: working
+									? (PHASE_ES[job.phase] ?? label)
+									: label}
 						</span>
 						<span>·</span>
 						<span>

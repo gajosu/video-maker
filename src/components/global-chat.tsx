@@ -1,21 +1,24 @@
-// Floating chat available on every page. It infers "what's on screen" from the current
-// route (project/video params) and routes each message to the matching job: the video's
-// studio job when a video is open, or the project's job (project-setup.ts) otherwise —
-// same "one Claude process at a time" jobs the dedicated pages already use, just reachable
-// from anywhere instead of only from their own page.
-import { useNavigate, useRouterState } from "@tanstack/react-router";
-import { Loader2, MessageCircle, Square, X } from "lucide-react";
+// Floating chat available on every page. On a video page it talks to that video's studio job; anywhere else to
+// the project's chat session (project-setup.ts), the "director" that edits the brand/knowledge and plans batches
+// of videos built in parallel. Both take messages mid-turn (queued, delivered after Claude's next tool call).
+// The "Trabajos" tab lists what is in progress (batches, videos working / queued / waiting for approval), and a
+// background watcher shows a toast when a job finishes, even with the panel closed or on another page.
+import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
+import { Layers, Loader2, MessageCircle, Square, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Activity } from "#/components/studio-chat";
+import { PHASE_ES, STATUS_ES } from "#/lib/studio";
 import { cn } from "#/lib/utils";
+import { getWork } from "#/server/batch";
 import { cancelSetupJob, getSetup, messageSetup } from "#/server/project-setup";
 import { cancelJob, getChat, getRunningJob, messageJob } from "#/server/studio";
 import { getProjects } from "#/server/vk";
 
 type ChatData = {
 	status: string;
-	log: { id: number; t: number; k: string; x: string }[];
+	log: { id: number; t: number; k: string; x: string; mid?: string }[];
 };
+type Work = Awaited<ReturnType<typeof getWork>>;
 
 export function GlobalChat() {
 	const routeParams = useRouterState({
@@ -28,11 +31,13 @@ export function GlobalChat() {
 	});
 	const navigate = useNavigate();
 	const [open, setOpen] = useState(false);
+	const [tab, setTab] = useState<"chat" | "work">("chat");
 	const [projects, setProjects] = useState<{ slug: string; name: string }[]>(
 		[],
 	);
 	const [stickyProject, setStickyProject] = useState("");
 	const [d, setD] = useState<ChatData | null>(null);
+	const [work, setWork] = useState<Work | null>(null);
 	// tracked regardless of whether the panel is open or which page we're on, so a job started from
 	// "Nuevo video" (or the setup chat) still gets noticed even if the user closes the widget or navigates away
 	const [globalWorking, setGlobalWorking] = useState(false);
@@ -65,15 +70,29 @@ export function GlobalChat() {
 		else if (mode === "project") setD(await getSetup({ data: { project } }));
 		else setD(null);
 	}, [mode, project, video]);
+	const loadWork = useCallback(
+		() =>
+			getWork({ data: { project: "" } })
+				.then(setWork)
+				.catch(() => {}),
+		[],
+	);
 
 	useEffect(() => {
 		if (open) load();
 	}, [open, load]);
+	const working = d?.status === "working" || d?.status === "queued";
 	useEffect(() => {
-		if (!open || d?.status !== "working") return;
+		if (!open || !working) return;
 		const id = setInterval(load, 2000);
 		return () => clearInterval(id);
-	}, [open, d?.status, load]);
+	}, [open, working, load]);
+	// the badge and the Trabajos tab: every few seconds (faster while the tab is open)
+	useEffect(() => {
+		loadWork();
+		const id = setInterval(loadWork, open && tab === "work" ? 3000 : 8000);
+		return () => clearInterval(id);
+	}, [open, tab, loadWork]);
 
 	// background watcher: runs at all times (panel closed, any page), so "te aviso cuando esté listo"
 	// is actually true instead of silently going quiet once you close the chat or navigate away
@@ -102,7 +121,7 @@ export function GlobalChat() {
 					? await getChat({ data: { project: wp, video: wv } })
 					: await getSetup({ data: { project: wp } });
 				if (cancelled) return;
-				if (s.status === "working") {
+				if (s.status === "working" || s.status === "queued") {
 					setGlobalWorking(true);
 					return;
 				}
@@ -136,7 +155,8 @@ export function GlobalChat() {
 	}, [toast]);
 
 	const projectName = projects.find((p) => p.slug === project)?.name ?? project;
-	const working = d?.status === "working";
+	const busyCount = (work?.running ?? 0) + (work?.queued ?? 0);
+	const reviewCount = work?.review ?? 0;
 
 	return (
 		<div className="fixed bottom-5 left-5 z-40 flex flex-col items-start gap-2">
@@ -186,7 +206,7 @@ export function GlobalChat() {
 				</div>
 			)}
 			{open ? (
-				<div className="flex h-[min(600px,80dvh)] w-[380px] max-w-[calc(100vw-2.5rem)] flex-col overflow-hidden rounded-xl border bg-card shadow-2xl">
+				<div className="flex h-[min(640px,82dvh)] w-[400px] max-w-[calc(100vw-2.5rem)] flex-col overflow-hidden rounded-xl border bg-card shadow-2xl">
 					<div className="flex items-center justify-between gap-2 border-b px-3 py-2.5">
 						<div className="min-w-0">
 							<div className="text-sm font-semibold">Chat con Claude</div>
@@ -194,12 +214,12 @@ export function GlobalChat() {
 								{mode === "video"
 									? `${projectName} · ${video}`
 									: mode === "project"
-										? projectName
+										? `${projectName} · proyecto y lotes de videos`
 										: "Elige un proyecto"}
 							</div>
 						</div>
 						<div className="flex items-center gap-2">
-							{working && (
+							{working && tab === "chat" && (
 								<button
 									type="button"
 									onClick={async () => {
@@ -224,7 +244,36 @@ export function GlobalChat() {
 							</button>
 						</div>
 					</div>
-					{mode === "none" ? (
+					<div className="flex border-b text-sm">
+						{(
+							[
+								["chat", "Chat"],
+								["work", "Trabajos"],
+							] as const
+						).map(([k, l]) => (
+							<button
+								key={k}
+								type="button"
+								onClick={() => setTab(k)}
+								className={cn(
+									"flex flex-1 items-center justify-center gap-1.5 py-2",
+									tab === k
+										? "border-b-2 border-accent font-medium text-foreground"
+										: "text-muted-foreground hover:text-foreground",
+								)}
+							>
+								{l}
+								{k === "work" && (busyCount > 0 || reviewCount > 0) && (
+									<span className="rounded-full bg-muted px-1.5 text-[11px] tabular">
+										{busyCount + reviewCount}
+									</span>
+								)}
+							</button>
+						))}
+					</div>
+					{tab === "work" ? (
+						<WorkList work={work} onNavigate={() => setOpen(false)} />
+					) : mode === "none" ? (
 						<div className="grid flex-1 place-items-center gap-3 p-6 text-center text-sm text-muted-foreground">
 							<p>Elige un proyecto para empezar a chatear sobre él.</p>
 							<select
@@ -248,24 +297,26 @@ export function GlobalChat() {
 							video={video}
 							log={d?.log ?? []}
 							status={d?.status ?? ""}
+							queue
+							header={false}
 							onSend={(text, refs) =>
 								mode === "video"
 									? messageJob({ data: { project, video, text, refs } })
 									: messageSetup({ data: { project, text, refs } })
 							}
 							onSent={load}
-							className="h-auto flex-1 lg:static"
+							className="h-auto flex-1 rounded-none border-0 lg:static"
 							empty={
 								mode === "video"
 									? "Pide cualquier cambio a este video."
-									: "Pídele algo sobre este proyecto: marca, base de conocimiento, voz…"
+									: "Pídele algo sobre este proyecto (marca, base de conocimiento, voz…) o varios videos a la vez: «haz 4 reels sobre…». Los planifica como un lote que se trabaja en paralelo."
 							}
 							placeholder={
 								working
-									? "Espera a que termine…"
+									? "Escribe cuando quieras: lo toma sin detener lo que está haciendo…"
 									: mode === "video"
 										? "Pide un cambio al video…"
-										: "Pide un cambio al proyecto…"
+										: "Pide cambios al proyecto o un lote de videos…"
 							}
 						/>
 					)}
@@ -274,17 +325,135 @@ export function GlobalChat() {
 				<button
 					type="button"
 					onClick={() => setOpen(true)}
-					className={cn(
-						"flex size-14 items-center justify-center rounded-full bg-accent text-accent-foreground shadow-xl hover:brightness-110",
-					)}
-					aria-label="Abrir chat"
+					className="relative flex size-14 items-center justify-center rounded-full bg-accent text-accent-foreground shadow-xl hover:brightness-110"
+					aria-label={`Abrir chat${busyCount ? ` (${busyCount} videos en proceso)` : ""}`}
 				>
 					{working || globalWorking ? (
 						<Loader2 className="size-6 animate-spin" aria-hidden />
 					) : (
 						<MessageCircle className="size-6" aria-hidden />
 					)}
+					{(busyCount > 0 || reviewCount > 0) && (
+						<span
+							className={cn(
+								"absolute -top-1 -right-1 min-w-5 rounded-full px-1.5 text-center text-xs font-semibold leading-5 tabular",
+								reviewCount
+									? "bg-amber-300 text-black"
+									: "bg-sky-400 text-black",
+							)}
+							title={`${busyCount} en proceso · ${reviewCount} por aprobar`}
+						>
+							{busyCount + reviewCount}
+						</span>
+					)}
 				</button>
+			)}
+		</div>
+	);
+}
+
+function WorkList({
+	work,
+	onNavigate,
+}: {
+	work: Work | null;
+	onNavigate: () => void;
+}) {
+	if (!work)
+		return (
+			<div className="grid flex-1 place-items-center">
+				<Loader2 className="size-5 animate-spin text-muted-foreground" />
+			</div>
+		);
+	const loose = work.jobs.filter((j) => !j.batch);
+	return (
+		<div className="flex-1 space-y-4 overflow-y-auto p-3 text-sm">
+			<div className="text-xs text-muted-foreground">
+				{work.running} trabajando · {work.queued} en cola · {work.review} por
+				aprobar (máx. {work.maxJobs} a la vez)
+			</div>
+			{work.batches.length > 0 && (
+				<section className="grid gap-2">
+					<h3 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+						Lotes
+					</h3>
+					{work.batches.map((b) => {
+						const p = b.progress;
+						const pct = (n: number) => `${(n / Math.max(1, p.total)) * 100}%`;
+						return (
+							<Link
+								key={`${b.project}/${b.id}`}
+								to="/studio/batch/$project/$batch"
+								params={{ project: b.project, batch: b.id }}
+								onClick={onNavigate}
+								className="block rounded-lg border p-2.5 hover:border-white/30"
+							>
+								<div className="flex items-center gap-1.5">
+									<Layers
+										className="size-3.5 text-muted-foreground"
+										aria-hidden
+									/>
+									<span className="truncate font-medium">{b.title}</span>
+								</div>
+								<div className="mt-1.5 flex h-1.5 overflow-hidden rounded-full bg-muted">
+									<div className="bg-accent" style={{ width: pct(p.done) }} />
+									<div
+										className="bg-amber-300"
+										style={{ width: pct(p.review) }}
+									/>
+									<div
+										className="bg-sky-400"
+										style={{ width: pct(p.working) }}
+									/>
+									<div
+										className="bg-violet-300/70"
+										style={{ width: pct(p.queued) }}
+									/>
+								</div>
+								<div className="mt-1 text-xs text-muted-foreground">
+									{b.status === "draft"
+										? `Borrador · ${p.total} videos · listo para lanzar`
+										: `${p.done}/${p.total} listos${p.review ? ` · ${p.review} por aprobar` : ""}${p.working ? ` · ${p.working} trabajando` : ""}${p.queued ? ` · ${p.queued} en cola` : ""}`}
+								</div>
+							</Link>
+						);
+					})}
+				</section>
+			)}
+			{loose.length > 0 && (
+				<section className="grid gap-1.5">
+					<h3 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+						Videos
+					</h3>
+					{loose.map((j) => {
+						const [label, dot] = STATUS_ES[j.status] ?? STATUS_ES.error;
+						return (
+							<Link
+								key={`${j.project}/${j.video}`}
+								to="/studio/$project/$video"
+								params={{ project: j.project, video: j.video }}
+								onClick={onNavigate}
+								className="flex items-center gap-2 rounded-lg border px-2.5 py-2 hover:border-white/30"
+							>
+								<span
+									className={`size-2 shrink-0 rounded-full ${dot}`}
+									aria-hidden
+								/>
+								<span className="min-w-0 flex-1 truncate">{j.title}</span>
+								<span className="shrink-0 text-xs text-muted-foreground">
+									{j.status === "working"
+										? (PHASE_ES[j.phase] ?? label)
+										: label}
+								</span>
+							</Link>
+						);
+					})}
+				</section>
+			)}
+			{!work.batches.length && !loose.length && (
+				<p className="py-8 text-center text-muted-foreground">
+					Nada en proceso. Pide videos en el chat o crea uno en «Nuevo video».
+				</p>
 			)}
 		</div>
 	);

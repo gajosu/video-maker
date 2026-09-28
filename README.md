@@ -94,6 +94,7 @@ bun vk render mybrand launch              # → projects/mybrand/videos/launch/o
 | `bun vk check <project> <video>` | validate script ↔ scenes ↔ cues, missing/requested assets |
 | `bun vk styles` | list video styles |
 | `bun vk asset <sub> …` | asset library: `list add search pick gen html request requests pull credits rm` (`bun vk asset help`) |
+| `bun vk batch <sub> …` | batches built in parallel by the web studio: `create update status list msg` (`bun vk batch help`) |
 | `bun vk ref <sub> …` | reference videos: `add` (link or file, via yt-dlp/cobalt) `analyze show list rm` (`bun vk ref help`) |
 | `bun vk music <project> <video>` | Sonic Pi music: create `music.rb`, or render it to `build/music-sonicpi.wav` (`music: sonicpi`) |
 | `bun vk mix <project> <video>` | audio only (music + SFX + voice) → `build/audio.wav`, playable in the preview |
@@ -144,6 +145,18 @@ bun vk ref add mybrand projects/mybrand/videos/launch/out/launch.mp4 --no-transc
 
 Each reference lands in `projects/<p>/references/<name>/` with `hook.jpg` (first 3 s at 4 fps), `shots.jpg` (one frame per shot) and `timeline.jpg` (24 frames), plus the transcript (ElevenLabs Scribe, billed per minute; `--no-transcribe` skips it). References are study material only: their footage, audio and script never go into a video. Posts that need a login: `VK_YTDLP_ARGS="--cookies cookies.txt"`. Cobalt: set `COBALT_API_URL` (+ `COBALT_API_KEY`) to your instance.
 
+## Batches (several videos at once)
+
+Ask the floating chat for several videos ("haz 4 reels sobre…"): it plans them as a **batch** (skill `vk-batch`) and shows a card with «Lanzar lote». In the batch panel you edit the draft, launch it, and approve each script with its voice (or all at once). Up to `VK_STUDIO_MAX_JOBS` videos (default 3) are built in parallel, each in its own Claude session; the rest wait in the queue. Messages you send to any chat while Claude works are delivered mid-turn, without stopping it.
+
+```bash
+bun vk batch create mybrand --file plan.json [--launch]   # {"title","defaults":{…},"items":[{"title","idea"},…]}
+bun vk batch status mybrand                              # every video's status and phase
+bun vk batch msg mybrand <video> "make the hook shorter"  # a change for one video
+```
+
+The scheduler lives in the web server (`bun run dev`); batches launched from the terminal start as soon as it runs.
+
 ## Project layout
 
 ```
@@ -170,6 +183,7 @@ Only `projects/_example` is tracked by git (its asset binaries are not: `bun vk 
 | `vk-learn` | add facts, docs or post-mortems to a project's knowledge base |
 | `vk-script` | write hook-first scripts grounded in the knowledge base |
 | `vk-assets` | shot list → stock, generated, HTML-rendered or user-requested assets and sounds |
+| `vk-batch` | plan several videos as a batch built in parallel, follow it and send changes |
 | `vk-ref` | download and study a reference video (cadence, cuts, hook, graphic style) and write a brief |
 | `vk-scenes` | code the animated scenes in the video's style and review them with rendered stills |
 | `vk-make` | the whole pipeline, idea → MP4 |

@@ -1,8 +1,8 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { Check, ImagePlus, Loader2, Sparkles, X } from "lucide-react";
+import { Check, ImagePlus, Layers, Loader2, Sparkles, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { fileUrl, fmtAgo } from "#/lib/format";
-import { STATUS_ES } from "#/lib/studio";
+import { MUSIC_OPTIONS, STATUS_ES, STYLE_OPTIONS } from "#/lib/studio";
 import { cn } from "#/lib/utils";
 import { getFlowStatus } from "#/server/flow";
 import { getStudio, startJob } from "#/server/studio";
@@ -12,29 +12,22 @@ export const Route = createFileRoute("/studio/")({
 	component: Studio,
 });
 
-const STYLES: [string, string][] = [
-	["punchy", "Punchy (redes, rápido)"],
-	["motion", "Motion graphics"],
-	["story", "Storytelling"],
-	["vox", "Explainer tipo Vox"],
-	["anthem", "Manifiesto / brand film"],
-	["dev", "Dev tools"],
-	["ugc", "UGC (personajes, contenido realista)"],
-];
-const MUSIC: [string, string][] = [
-	["", "Automática (según el estilo)"],
-	["beat", "Beat (percusión, redes)"],
-	["pulse", "Pulse (electrónica)"],
-	["ambient", "Ambient (suave, sin batería)"],
-	["pluck", "Lofi pluck"],
-	["none", "Sin música"],
-];
+const STYLES = STYLE_OPTIONS;
+const MUSIC = MUSIC_OPTIONS;
 const field =
 	"w-full rounded-lg border bg-card px-3 py-2 text-sm outline-none focus:border-white/40";
 
 function Studio() {
-	const { projects, jobs, running, maxJobs, assets, projectVoices, voices } =
-		Route.useLoaderData();
+	const {
+		projects,
+		jobs,
+		batches,
+		running,
+		maxJobs,
+		assets,
+		projectVoices,
+		voices,
+	} = Route.useLoaderData();
 	const full = running >= maxJobs;
 	const navigate = useNavigate();
 	const [project, setProject] = useState(
@@ -533,6 +526,40 @@ function Studio() {
 			</section>
 
 			<aside>
+				{batches.length > 0 && (
+					<div className="mb-8">
+						<h2 className="text-lg font-semibold">Lotes</h2>
+						<ul className="mt-3 grid gap-2">
+							{batches.map((b) => (
+								<li key={`${b.project}/${b.id}`}>
+									<Link
+										to="/studio/batch/$project/$batch"
+										params={{ project: b.project, batch: b.id }}
+										className="block rounded-xl border bg-card p-3 transition-colors hover:border-white/25"
+									>
+										<div className="flex items-center gap-1.5 truncate font-medium">
+											<Layers
+												className="size-4 shrink-0 text-muted-foreground"
+												aria-hidden
+											/>
+											{b.title}
+										</div>
+										<div className="mt-1 text-xs text-muted-foreground">
+											{b.status === "draft"
+												? `Borrador · ${b.total} videos`
+												: `${b.done}/${b.total} listos${b.review ? ` · ${b.review} por aprobar` : ""}`}{" "}
+											· {b.project} · {fmtAgo(b.createdAt)}
+										</div>
+									</Link>
+								</li>
+							))}
+						</ul>
+						<p className="mt-2 text-xs text-muted-foreground">
+							Pide varios videos a la vez en el chat flotante y se arman como
+							lote.
+						</p>
+					</div>
+				)}
 				<h2 className="text-lg font-semibold">Videos creados aquí</h2>
 				{jobs.length === 0 ? (
 					<p className="mt-3 text-sm text-muted-foreground">Todavía ninguno.</p>

@@ -28,6 +28,8 @@ import { assertSlug, PROJECTS_DIR, projectDir, ROOT, videoDir } from "./lib/path
 import { loadPackage, slugifyVideo } from "./lib/pkg.ts";
 import { type Cues, listProjects, listVideos, loadProject, loadVideo, readKnowledge } from "./lib/project.ts";
 import { exportEvents, openVideo, renderFrames, renderStills } from "./lib/render.ts";
+import { createBatch, listBatches, loadBatch, MAX_BATCH, normalizePlan, updateBatch } from "./lib/batch.ts";
+import { queueMessage } from "./lib/inbox.ts";
 import { addRef, analyzeRef, listRefs, loadAnalysis, loadRef, refDir, removeRef } from "./lib/refs.ts";
 import { renderSonicPi } from "./lib/sonicpi.ts";
 import { tighten } from "./lib/tighten.ts";
@@ -50,6 +52,7 @@ const HELP = `video-kit — punchy vertical videos from a script
   bun vk styles                         list video styles (script.md "style:")
   bun vk asset <sub> …                  images, video, sfx, music (bun vk asset help)
   bun vk ref <sub> …                    reference videos to study: voice cadence, cuts, style (bun vk ref help)
+  bun vk batch <sub> …                  plan several videos, built in parallel by the web studio (bun vk batch help)
   bun vk music <project> <video>        Sonic Pi music: create music.rb, or render it (script.md "music: sonicpi")
   bun vk mix <project> <video>          re-mix audio only (build/audio.wav, heard in the preview)
   bun vk stills <project> <video> [t ...] [--dark|--light]  JPG previews -> stills/
@@ -119,6 +122,25 @@ const REF_HELP = `bun vk ref <sub>   reference videos (projects/<p>/references/<
   show <p> <name>           print report.md (read the .jpg sheets next to it)
   list <p>
   rm <p> <name>`;
+
+const BATCH_HELP = `bun vk batch <sub>   batches of videos, built in parallel by the web studio (bun run dev must be running)
+
+  create <p> --file plan.json [--launch]   plan: {"title", "defaults": {"style","duration","voice","music","videoRefs","flow":{"clips","images"}},
+                                           "items": [{"title","idea","style?","duration?","voice?","videoRefs?","assets?"}]}  (1-${MAX_BATCH} videos)
+                                           a draft by default (the user reviews and launches it in the batch panel); --launch starts it now
+  update <p> <id> --file plan.json   replace a draft's plan (edit it instead of creating another batch)
+  status <p> [id]          progress of one batch (or every batch): each video's status and phase
+  list <p>
+  msg <p> <video> "text"   send a message to a video's session (delivered mid-turn if it is working)`;
+
+const STATUS_LABEL: Record<string, string> = { queued: "en cola", working: "trabajando", review: "esperando aprobación", done: "listo", error: "error", cancelled: "cancelado" };
+function jobInfo(p: string, v: string): { status: string; phase: string; cost: number } | null {
+	try {
+		return JSON.parse(readFileSync(join(projectDir(p), "jobs", v, "job.json"), "utf8"));
+	} catch {
+		return null;
+	}
+}
 
 /** a Sonic Pi music file: `sonicpi` = videos/<v>/music.rb; `x.rb` = the video's x.rb, else projects/<p>/music/x.rb */
 function sonicPiFile(p: string, v: string, spec: string): string | null {
@@ -686,6 +708,78 @@ const commands: Record<string, () => Promise<void> | void> = {
 		}
 	},
 
+	async batch() {
+		const [sub, p, ...rest] = args;
+		if (!sub || sub === "help" || !p) return console.log(BATCH_HELP);
+		assertSlug(p, "project");
+		loadProject(p);
+		const panel = (id: string) => `http://localhost:3000/studio/batch/${p}/${id}`;
+		const show = (id: string) => {
+			const b = loadBatch(p, id);
+			if (!b) throw new Error(`no batch "${id}" (bun vk batch list ${p})`);
+			console.log(`${b.id}  ${b.title}  [${b.status}]  ${b.items.length} video(s)  ${panel(b.id)}`);
+			for (const [i, it] of b.items.entries()) {
+				const j = it.video ? jobInfo(p, it.video) : null;
+				const st = j ? `${STATUS_LABEL[j.status] ?? j.status}${j.status === "working" ? ` (${j.phase})` : ""}${j.cost ? `  US$${j.cost.toFixed(2)}` : ""}` : b.status === "draft" ? "borrador" : "por crear";
+				console.log(`  ${String(i + 1).padStart(2)}. ${(it.video ?? it.title).padEnd(36)} ${st}`);
+			}
+		};
+		switch (sub) {
+			case "create": {
+				const file = str("file");
+				if (!file) throw new Error("usage: bun vk batch create <project> --file plan.json [--launch]");
+				const b = createBatch(p, JSON.parse(readFileSync(file, "utf8")), { launch: !!flags.launch });
+				show(b.id);
+				console.log(
+					b.status === "draft"
+						? "\ndraft: the user reviews it and presses «Lanzar lote» in the batch panel (or run with --launch)"
+						: "\nlaunching: the web studio creates the jobs within seconds (it must be running: bun run dev)",
+				);
+				return;
+			}
+			case "update": {
+				const [id] = rest;
+				const file = str("file");
+				if (!id || !file) throw new Error("usage: bun vk batch update <project> <id> --file plan.json");
+				const plan = normalizePlan(JSON.parse(readFileSync(file, "utf8")));
+				updateBatch(p, id, (b) => {
+					if (b.status !== "draft") throw new Error(`batch ${id} is ${b.status}: only drafts can be edited (send changes to its videos with bun vk batch msg)`);
+					b.title = plan.title;
+					b.defaults = plan.defaults;
+					b.items = plan.items;
+				});
+				show(id);
+				return;
+			}
+			case "status": {
+				const ids = rest[0] ? [rest[0]] : listBatches(p).filter((b) => b.status !== "cancelled").map((b) => b.id);
+				if (!ids.length) return console.log(`no batches yet (bun vk batch create ${p} --file plan.json)`);
+				for (const id of ids) show(id);
+				return;
+			}
+			case "list": {
+				for (const b of listBatches(p)) console.log(`${b.id}  [${b.status.padEnd(9)}] ${String(b.items.length).padStart(2)} video(s)  ${b.title}`);
+				return;
+			}
+			case "msg": {
+				const [v, text] = rest;
+				if (!v || !text) throw new Error('usage: bun vk batch msg <project> <video> "text"');
+				assertSlug(v, "video");
+				const j = jobInfo(p, v);
+				if (!j) throw new Error(`no studio job for ${p}/${v}`);
+				queueMessage(join(projectDir(p), "jobs", v), text);
+				console.log(
+					j.status === "working" || j.status === "queued"
+						? `queued for ${v}: it gets it after its next step`
+						: `sent to ${v}: the web studio picks it up within seconds (it must be running: bun run dev)`,
+				);
+				return;
+			}
+			default:
+				throw new Error(`unknown batch command "${sub}"\n\n${BATCH_HELP}`);
+		}
+	},
+
 	async package() {
 		const [sub, ...rest] = args;
 		if (sub === "status" || sub === "resume" || sub === "worker") {
@@ -760,7 +854,7 @@ if (!fn) {
 	process.exit(1);
 }
 try {
-	if (args[0] && !["voices", "help", "asset", "ref", "styles", "package"].includes(cmd)) assertSlug(args[0], "project");
+	if (args[0] && !["voices", "help", "asset", "ref", "batch", "styles", "package"].includes(cmd)) assertSlug(args[0], "project");
 	await fn();
 } catch (e) {
 	console.error(`✗ ${(e as Error).message}`);

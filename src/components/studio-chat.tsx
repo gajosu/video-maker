@@ -1,4 +1,4 @@
-import { useRouter } from "@tanstack/react-router";
+import { Link, useRouter } from "@tanstack/react-router";
 import {
 	Bot,
 	CheckCheck,
@@ -6,8 +6,10 @@ import {
 	Clock,
 	Film,
 	ImageIcon,
+	Layers,
 	Loader2,
 	Paperclip,
+	Rocket,
 	Search,
 	Send,
 	Square,
@@ -18,6 +20,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { fileUrl } from "#/lib/format";
 import { PHASE_ES, pkgLogToEvents, pkgStepText } from "#/lib/studio";
 import { cn } from "#/lib/utils";
+import { getBatch, launchBatch } from "#/server/batch";
 import { cancelJob, getChat, getPkgChat, messageJob } from "#/server/studio";
 
 const field =
@@ -36,6 +39,7 @@ type Media =
 	  }
 	| { type: "stills"; files: string[]; t: number }
 	| { type: "render"; file: string; t: number }
+	| { type: "batch"; id: string; t: number }
 	| {
 			type: "reference";
 			name: string;
@@ -66,6 +70,122 @@ const SOURCE_ES: Record<string, string> = {
 	url: "Descargado",
 	file: "Añadido",
 };
+
+const DOT: Record<string, string> = {
+	queued: "bg-violet-300/70",
+	working: "bg-sky-400 animate-pulse",
+	review: "bg-amber-300",
+	done: "bg-accent",
+	error: "bg-red-400",
+	cancelled: "bg-zinc-500",
+};
+
+/** a batch planned in the chat: live status per video, launch it or open its panel */
+function BatchCard({ project, id }: { project: string; id: string }) {
+	const [d, setD] = useState<Awaited<ReturnType<typeof getBatch>> | null>(null);
+	const [busy, setBusy] = useState(false);
+	const [error, setError] = useState("");
+	const load = useCallback(
+		() =>
+			getBatch({ data: { project, id } })
+				.then(setD)
+				.catch((e) => setError(String(e.message ?? e))),
+		[project, id],
+	);
+	useEffect(() => {
+		load();
+	}, [load]);
+	const b = d?.batch;
+	const live =
+		b &&
+		(b.status === "launching" ||
+			b.items.some((i) => ["working", "queued"].includes(i.job?.status ?? "")));
+	useEffect(() => {
+		if (!live) return;
+		const t = setInterval(load, 4000);
+		return () => clearInterval(t);
+	}, [live, load]);
+	if (error) return <p className="text-xs text-red-300">Lote: {error}</p>;
+	if (!b)
+		return (
+			<Loader2
+				className="size-4 animate-spin text-muted-foreground"
+				aria-label="Cargando lote"
+			/>
+		);
+	const p = b.progress;
+	return (
+		<div className="max-w-[340px] rounded-lg border border-accent/30 bg-background/60 p-3">
+			<div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+				<Layers className="size-3" aria-hidden />
+				{b.status === "draft"
+					? "Lote en borrador"
+					: b.status === "done"
+						? "Lote terminado"
+						: b.status === "cancelled"
+							? "Lote cancelado"
+							: "Lote en curso"}
+			</div>
+			<div className="mt-0.5 font-medium text-foreground">{b.title}</div>
+			<ol className="mt-2 grid gap-1 text-xs">
+				{b.items.map((it, i) => (
+					<li key={it.video ?? i} className="flex items-center gap-2">
+						<span
+							className={cn(
+								"size-2 shrink-0 rounded-full",
+								it.job ? DOT[it.job.status] : "bg-zinc-600",
+							)}
+							aria-hidden
+						/>
+						<span className="truncate">{it.title}</span>
+					</li>
+				))}
+			</ol>
+			{b.status !== "draft" && (
+				<div className="mt-2 text-xs text-muted-foreground">
+					{p.done}/{p.total} listos
+					{p.review ? ` · ${p.review} por aprobar` : ""}
+					{p.working ? ` · ${p.working} trabajando` : ""}
+					{p.queued ? ` · ${p.queued} en cola` : ""}
+				</div>
+			)}
+			<div className="mt-3 flex gap-2">
+				{b.status === "draft" && (
+					<button
+						type="button"
+						disabled={busy}
+						onClick={async () => {
+							setBusy(true);
+							try {
+								await launchBatch({ data: { project, id } });
+								await load();
+							} catch (e) {
+								setError(e instanceof Error ? e.message : String(e));
+							} finally {
+								setBusy(false);
+							}
+						}}
+						className="inline-flex items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-xs font-semibold text-accent-foreground disabled:opacity-50"
+					>
+						{busy ? (
+							<Loader2 className="size-3 animate-spin" aria-hidden />
+						) : (
+							<Rocket className="size-3" aria-hidden />
+						)}
+						Lanzar lote
+					</button>
+				)}
+				<Link
+					to="/studio/batch/$project/$batch"
+					params={{ project, batch: id }}
+					className="rounded-lg border px-3 py-1.5 text-xs text-muted-foreground hover:border-white/40 hover:text-foreground"
+				>
+					{b.status === "draft" ? "Revisar y editar" : "Ver lote"}
+				</Link>
+			</div>
+		</div>
+	);
+}
 
 /** generated / found media, shown inline in the chat */
 function MediaEvent({
@@ -163,6 +283,7 @@ function MediaEvent({
 				</div>
 			</div>
 		);
+	if (m.type === "batch") return <BatchCard project={project} id={m.id} />;
 	if (m.type === "reference")
 		return (
 			<div className="max-w-[340px] rounded-lg border bg-background/60 p-2">
@@ -301,6 +422,8 @@ export function Activity({
 	onSent,
 	empty,
 	placeholder: placeholderProp,
+	queue,
+	header = true,
 }: {
 	project: string;
 	video?: string;
@@ -312,6 +435,10 @@ export function Activity({
 	onSent?: () => void;
 	empty?: string;
 	placeholder?: string;
+	/** accept messages while the session works (they're delivered mid-turn); default: when using messageJob */
+	queue?: boolean;
+	/** the "Chat con Claude" title bar (off when the container has its own) */
+	header?: boolean;
 }) {
 	const router = useRouter();
 	const [msg, setMsg] = useState("");
@@ -322,9 +449,9 @@ export function Activity({
 	const fileInput = useRef<HTMLInputElement>(null);
 	const box = useRef<HTMLDivElement>(null);
 	const [zoom, setZoom] = useState<string | null>(null);
-	const working = status === "working";
-	// video jobs take messages mid-turn (queued, delivered after Claude's next tool call); other chats wait
-	const canQueue = !onSend;
+	const working = status === "working" || status === "queued";
+	// sessions take messages mid-turn (queued, delivered after Claude's next tool call)
+	const canQueue = queue ?? !onSend;
 	const locked = working && !canQueue;
 	const seen = new Set(log.filter((e) => e.k === "seen").map((e) => e.x));
 	const n = log.length;
@@ -420,9 +547,11 @@ export function Activity({
 				className,
 			)}
 		>
-			<div className="border-b px-4 py-3 text-sm font-semibold">
-				Chat con Claude
-			</div>
+			{header && (
+				<div className="border-b px-4 py-3 text-sm font-semibold">
+					Chat con Claude
+				</div>
+			)}
 			<div ref={box} className="flex-1 space-y-2 overflow-y-auto p-4 text-sm">
 				{log.length === 0 && empty && (
 					<p className="text-muted-foreground">{empty}</p>
@@ -489,7 +618,10 @@ export function Activity({
 				)}
 				{working && (
 					<div className="flex items-center gap-2 text-xs text-muted-foreground">
-						<Loader2 className="size-3 animate-spin" aria-hidden /> trabajando…
+						<Loader2 className="size-3 animate-spin" aria-hidden />{" "}
+						{status === "queued"
+							? "en cola: empieza cuando se libere un turno…"
+							: "trabajando…"}
 					</div>
 				)}
 			</div>
@@ -618,7 +750,7 @@ export function VideoChat({
 		loadPkg();
 	}, [load, loadPkg]);
 	useEffect(() => {
-		if (d?.status !== "working") return;
+		if (d?.status !== "working" && d?.status !== "queued") return;
 		const id = setInterval(load, 2000);
 		return () => clearInterval(id);
 	}, [d?.status, load]);
@@ -660,12 +792,13 @@ export function VideoChat({
 					</span>
 				</div>
 			)}
-			{!pkgActive && d.status === "working" && (
+			{!pkgActive && (d.status === "working" || d.status === "queued") && (
 				<div className="flex items-center justify-between gap-2 rounded-lg border border-sky-400/40 px-3 py-2 text-sm">
 					<span className="inline-flex items-center gap-2">
 						<Loader2 className="size-4 animate-spin text-sky-300" aria-hidden />
-						{PHASE_ES[d.phase] ?? "Trabajando"}… el preview se actualiza solo al
-						terminar.
+						{d.status === "queued"
+							? "En cola: empieza cuando termine otro video."
+							: `${PHASE_ES[d.phase] ?? "Trabajando"}… el preview se actualiza solo al terminar.`}
 					</span>
 					<button
 						type="button"

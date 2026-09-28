@@ -23,6 +23,7 @@ import { Route as StudioProjectVideoRouteImport } from './routes/studio.$project
 import { Route as ApiPageProjectVideoRouteImport } from './routes/api/page.$project.$video'
 import { Route as ApiUploadProjectNameRouteImport } from './routes/api/upload.$project.$name'
 import { Route as PProjectVVideoRouteImport } from './routes/p.$project.v.$video'
+import { Route as StudioBatchProjectBatchRouteImport } from './routes/studio.batch.$project.$batch'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -94,6 +95,11 @@ const PProjectVVideoRoute = PProjectVVideoRouteImport.update({
   path: '/p/$project/v/$video',
   getParentRoute: () => rootRouteImport,
 } as any)
+const StudioBatchProjectBatchRoute = StudioBatchProjectBatchRouteImport.update({
+  id: '/studio/batch/$project/$batch',
+  path: '/studio/batch/$project/$batch',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -110,6 +116,7 @@ export interface FileRoutesByFullPath {
   '/api/page/$project/$video': typeof ApiPageProjectVideoRoute
   '/api/upload/$project/$name': typeof ApiUploadProjectNameRoute
   '/p/$project/v/$video': typeof PProjectVVideoRoute
+  '/studio/batch/$project/$batch': typeof StudioBatchProjectBatchRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -126,6 +133,7 @@ export interface FileRoutesByTo {
   '/api/page/$project/$video': typeof ApiPageProjectVideoRoute
   '/api/upload/$project/$name': typeof ApiUploadProjectNameRoute
   '/p/$project/v/$video': typeof PProjectVVideoRoute
+  '/studio/batch/$project/$batch': typeof StudioBatchProjectBatchRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -143,6 +151,7 @@ export interface FileRoutesById {
   '/api/page/$project/$video': typeof ApiPageProjectVideoRoute
   '/api/upload/$project/$name': typeof ApiUploadProjectNameRoute
   '/p/$project/v/$video': typeof PProjectVVideoRoute
+  '/studio/batch/$project/$batch': typeof StudioBatchProjectBatchRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -161,6 +170,7 @@ export interface FileRouteTypes {
     | '/api/page/$project/$video'
     | '/api/upload/$project/$name'
     | '/p/$project/v/$video'
+    | '/studio/batch/$project/$batch'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -177,6 +187,7 @@ export interface FileRouteTypes {
     | '/api/page/$project/$video'
     | '/api/upload/$project/$name'
     | '/p/$project/v/$video'
+    | '/studio/batch/$project/$batch'
   id:
     | '__root__'
     | '/'
@@ -193,6 +204,7 @@ export interface FileRouteTypes {
     | '/api/page/$project/$video'
     | '/api/upload/$project/$name'
     | '/p/$project/v/$video'
+    | '/studio/batch/$project/$batch'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -210,6 +222,7 @@ export interface RootRouteChildren {
   ApiPageProjectVideoRoute: typeof ApiPageProjectVideoRoute
   ApiUploadProjectNameRoute: typeof ApiUploadProjectNameRoute
   PProjectVVideoRoute: typeof PProjectVVideoRoute
+  StudioBatchProjectBatchRoute: typeof StudioBatchProjectBatchRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -312,6 +325,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof PProjectVVideoRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/studio/batch/$project/$batch': {
+      id: '/studio/batch/$project/$batch'
+      path: '/studio/batch/$project/$batch'
+      fullPath: '/studio/batch/$project/$batch'
+      preLoaderRoute: typeof StudioBatchProjectBatchRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -330,6 +350,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiPageProjectVideoRoute: ApiPageProjectVideoRoute,
   ApiUploadProjectNameRoute: ApiUploadProjectNameRoute,
   PProjectVVideoRoute: PProjectVVideoRoute,
+  StudioBatchProjectBatchRoute: StudioBatchProjectBatchRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

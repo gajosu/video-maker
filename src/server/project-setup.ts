@@ -2,20 +2,19 @@
 // project.json and knowledge/*.md from a free-text brief, a URL and/or reference images (the vk-project
 // skill's steps 3-6 — the scaffold itself, step 2, already ran via createProject).
 // State lives in projects/<p>/jobs/__setup__/{job.json,log.jsonl}, mirroring studio-runner.ts's video jobs.
-import { spawn } from "node:child_process";
-import {
-	appendFileSync,
-	existsSync,
-	mkdirSync,
-	readFileSync,
-	writeFileSync,
-} from "node:fs";
-import { homedir } from "node:os";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { createServerFn } from "@tanstack/react-start";
-import { projectDir, ROOT } from "../../cli/lib/paths.ts";
+import {
+	type LogKind,
+	logTo,
+	queueMessage,
+	readLogFrom,
+} from "../../cli/lib/inbox.ts";
+import { projectDir } from "../../cli/lib/paths.ts";
 import { listProjects, loadProject } from "../../cli/lib/project.ts";
-import { CLAUDE_MODEL } from "./studio-runner.ts";
+import { mediaDiff, mediaSnap } from "./media.ts";
+import { alive, runSession } from "./session.ts";
 
 export type SetupStatus = "working" | "done" | "error" | "cancelled";
 export type SetupJob = {
@@ -29,25 +28,9 @@ export type SetupJob = {
 	createdAt: number;
 	updatedAt: number;
 };
-export type LogEvent = {
-	t: number;
-	k: "you" | "say" | "tool" | "done" | "error" | "media";
-	x: string;
-};
 
 const dir = (p: string) => join(projectDir(p), "jobs", "__setup__");
 const jobFile = (p: string) => join(dir(p), "job.json");
-const logFile = (p: string) => join(dir(p), "log.jsonl");
-
-const alive = (pid?: number) => {
-	if (!pid) return false;
-	try {
-		process.kill(pid, 0);
-		return true;
-	} catch {
-		return false;
-	}
-};
 
 function saveJob(j: SetupJob) {
 	mkdirSync(dir(j.project), { recursive: true });
@@ -55,10 +38,8 @@ function saveJob(j: SetupJob) {
 	writeFileSync(jobFile(j.project), `${JSON.stringify(j, null, 1)}\n`);
 }
 
-function log(p: string, k: LogEvent["k"], x: string) {
-	mkdirSync(dir(p), { recursive: true });
-	appendFileSync(logFile(p), `${JSON.stringify({ t: Date.now(), k, x })}\n`);
-}
+const log = (p: string, k: LogKind, x: string) => logTo(dir(p), k, x);
+const readLog = (p: string, n = 300) => readLogFrom(dir(p), n);
 
 const readRaw = (p: string): SetupJob | null =>
 	existsSync(jobFile(p)) ? JSON.parse(readFileSync(jobFile(p), "utf8")) : null;
@@ -75,29 +56,6 @@ function readJob(p: string): SetupJob | null {
 	return j;
 }
 
-function readLog(p: string, n = 300): (LogEvent & { id: number })[] {
-	if (!existsSync(logFile(p))) return [];
-	const lines = readFileSync(logFile(p), "utf8").trim().split("\n");
-	const from = Math.max(0, lines.length - n);
-	return lines.slice(from).flatMap((l, i) => {
-		try {
-			return [{ ...(JSON.parse(l) as LogEvent), id: from + i }];
-		} catch {
-			return [];
-		}
-	});
-}
-
-/** true while any project's setup chat is running */
-const anySetupRunning = () =>
-	listProjects().some((p) => readJob(p.slug)?.status === "working");
-
-const claudeBin = () => {
-	if (process.env.CLAUDE_BIN) return process.env.CLAUDE_BIN;
-	const local = join(homedir(), ".local", "bin", "claude");
-	return existsSync(local) ? local : "claude";
-};
-
 const ALLOWED = [
 	"Read",
 	"Edit",
@@ -112,150 +70,42 @@ const ALLOWED = [
 	"Bash(bun cli/index.ts:*)",
 ];
 
+// the project chat: sets the project up (vk-project), keeps its knowledge current (vk-learn) and, as the
+// "director" of the global chat, plans batches of videos (vk-batch) that the studio builds in parallel
 const SYSTEM = [
-	"Estás trabajando detrás de la interfaz web de video-kit (página «Nuevo proyecto»). El usuario no ve la terminal ni puede responder preguntas a mitad de un paso:",
+	"Estás trabajando detrás de la interfaz web de video-kit: eres el chat general de un proyecto (la página «Nuevo proyecto» y el chat flotante fuera de un video). El usuario no ve la terminal ni puede responder preguntas a mitad de un paso:",
 	"no uses AskUserQuestion ni esperes confirmación; decide lo razonable (marca cualquier dato inventado como placeholder) y explícalo en tu resumen final.",
-	"El proyecto ya fue creado con `bun vk init` (project.json básico ya existe): usa el skill vk-project empezando en su paso 3 (reunir datos), no repitas el scaffold.",
-	"Si te dan una URL, léela con WebFetch antes de escribir nada. Si te dan imágenes de referencia, léelas con Read (son imágenes, puedes verlas) para tomar colores, logo y tono visual.",
-	"Termina cada turno con un resumen breve en español (3-6 líneas) de qué escribiste (project.json, qué archivos de knowledge) y qué quedó como placeholder si algo faltaba.",
+	"Puedes: configurar o cambiar el proyecto (project.json, knowledge/*.md) con los skills vk-project y vk-learn; y planificar videos.",
+	"Si el usuario pide uno o varios videos nuevos, NO los hagas tú: planifícalos como lote con el skill vk-batch (`bun vk batch create`, borrador por defecto) para que el estudio los construya en paralelo, cada uno en su propia sesión. Para ver el avance usa `bun vk batch status`, y para pedir un cambio a un video ya creado `bun vk batch msg`.",
+	"Si te dan una URL, léela con WebFetch antes de escribir nada. Si te dan imágenes de referencia, léelas con Read (son imágenes, puedes verlas).",
+	"Termina cada turno con un resumen breve en español (3-6 líneas) de qué hiciste (archivos, lote creado y su id) y qué quedó pendiente.",
 ].join(" ");
 
-function describe(name: string, input: Record<string, unknown>): string {
-	const f = (k: string) =>
-		typeof input[k] === "string" ? (input[k] as string) : "";
-	if (name === "Bash") return f("description") || f("command").slice(0, 140);
-	if (["Read", "Edit", "Write"].includes(name))
-		return `${{ Read: "Leyendo", Edit: "Editando", Write: "Escribiendo" }[name]} ${f("file_path").split("/").pop()}`;
-	if (name === "Skill") return `Skill ${f("skill")}`;
-	if (name === "WebFetch") return `Leyendo ${f("url")}`;
-	if (name === "TodoWrite") return "Actualizando plan";
-	return name;
-}
-
 function run(job: SetupJob, prompt: string) {
-	const args = [
-		"-p",
-		prompt,
-		"--model",
-		CLAUDE_MODEL,
-		"--output-format",
-		"stream-json",
-		"--verbose",
-		"--permission-mode",
-		"acceptEdits",
-		"--append-system-prompt",
-		SYSTEM,
-		"--allowedTools",
-		...ALLOWED,
-	];
-	if (job.session) args.push("--resume", job.session);
-	const child = spawn(claudeBin(), args, {
-		cwd: ROOT,
-		env: process.env,
-		stdio: ["ignore", "pipe", "pipe"],
-	});
-	job.status = "working";
-	job.pid = child.pid;
-	job.error = undefined;
-	saveJob(job);
 	const p = job.project;
-	let buf = "";
-	let stderr = "";
-	let lastResult: { ok: boolean; text: string } | null = null;
-	let pending = "";
-	const flush = () => {
-		if (pending) log(p, "say", pending);
-		pending = "";
-	};
-	child.stdout.on("data", (d: Buffer) => {
-		buf += d.toString();
-		let i = buf.indexOf("\n");
-		while (i >= 0) {
-			const line = buf.slice(0, i).trim();
-			buf = buf.slice(i + 1);
-			i = buf.indexOf("\n");
-			if (!line) continue;
-			let e: Record<string, unknown>;
-			try {
-				e = JSON.parse(line);
-			} catch {
-				continue;
+	let snap = mediaSnap(p);
+	const media = (k: LogKind, x: string) => log(p, k, x);
+	runSession({
+		job,
+		dir: dir(p),
+		project: p,
+		prompt,
+		allowed: ALLOWED,
+		system: SYSTEM,
+		save: saveJob,
+		reload: () => readRaw(p),
+		onToolResult: () => {
+			const now = mediaSnap(p);
+			mediaDiff(media, p, undefined, snap, now);
+			snap = now;
+		},
+		onFinish: (j, res) => {
+			if (res.ok) {
+				j.status = "done";
+				j.summary = res.text;
 			}
-			if (
-				e.type === "system" &&
-				e.subtype === "init" &&
-				typeof e.session_id === "string" &&
-				!job.session
-			) {
-				job.session = e.session_id;
-				saveJob(job);
-			}
-			if (e.type === "assistant") {
-				const content = ((e.message as { content?: unknown[] })?.content ??
-					[]) as Record<string, unknown>[];
-				for (const c of content) {
-					if (
-						c.type === "text" &&
-						typeof c.text === "string" &&
-						c.text.trim()
-					) {
-						flush();
-						pending = c.text.trim();
-					}
-					if (c.type === "tool_use") {
-						flush();
-						log(
-							p,
-							"tool",
-							describe(
-								String(c.name),
-								(c.input ?? {}) as Record<string, unknown>,
-							),
-						);
-					}
-				}
-			}
-			if (e.type === "result") {
-				lastResult = {
-					ok: !e.is_error && e.subtype === "success",
-					text: String(e.result ?? ""),
-				};
-				if (typeof e.total_cost_usd === "number") job.cost += e.total_cost_usd;
-				if (typeof e.session_id === "string") job.session = e.session_id;
-			}
-		}
-	});
-	child.stderr.on("data", (d: Buffer) => {
-		stderr = (stderr + d.toString()).slice(-2000);
-	});
-	child.on("close", (code) => {
-		const j = readRaw(p) ?? job;
-		if (j.status === "cancelled") return;
-		j.pid = undefined;
-		j.session = job.session ?? j.session;
-		j.cost = job.cost;
-		const res = lastResult;
-		if (!res?.ok || pending.trim() !== res.text.trim()) flush();
-		if (res?.ok) {
-			j.status = "done";
-			j.error = undefined;
-			j.summary = res.text;
-			log(p, "done", res.text);
-		} else {
-			j.status = "error";
-			j.error =
-				res?.text || stderr.trim() || `claude terminó con código ${code}`;
-			log(p, "error", j.error);
-		}
-		saveJob(j);
-	});
-	child.on("error", (err) => {
-		const j = readRaw(p) ?? job;
-		j.status = "error";
-		j.pid = undefined;
-		j.error = `No se pudo iniciar Claude Code: ${err.message}`;
-		log(p, "error", j.error);
-		saveJob(j);
+			saveJob(j);
+		},
 	});
 }
 
@@ -273,12 +123,6 @@ function cancelSetup(p: string) {
 
 const SLUG = /^[\w-]+$/;
 const projectSlugs = () => listProjects().map((p) => p.slug);
-const busy = () => {
-	if (anySetupRunning())
-		throw new Error(
-			"Ya hay una configuración de proyecto en proceso. Espera a que termine.",
-		);
-};
 const projectField = (d: unknown) => {
 	const project = String((d as Record<string, unknown> | null)?.project ?? "");
 	if (!SLUG.test(project) || !projectSlugs().includes(project))
@@ -309,7 +153,8 @@ export const startSetup = createServerFn({ method: "POST" })
 		return { project, brief, url, refs };
 	})
 	.handler(async ({ data }) => {
-		busy();
+		if (readJob(data.project)?.status === "working")
+			throw new Error("Este proyecto ya se está configurando.");
 		const now = Date.now();
 		const job: SetupJob = {
 			project: data.project,
@@ -376,10 +221,28 @@ export const messageSetup = createServerFn({ method: "POST" })
 		return { project, text, refs };
 	})
 	.handler(async ({ data }) => {
-		busy();
 		const existing = readJob(data.project);
-		if (existing?.status === "working")
-			throw new Error("Espera a que termine el paso actual");
+		const logRefs = () => {
+			for (const r of data.refs)
+				log(
+					data.project,
+					"media",
+					JSON.stringify({
+						type: "asset",
+						name: r,
+						kind: "image",
+						file: `refs/${r}`,
+						source: "upload",
+						t: Date.now(),
+					}),
+				);
+		};
+		// working: queue it; the session picks it up after its next tool call without stopping
+		if (existing?.status === "working") {
+			queueMessage(dir(data.project), data.text, data.refs);
+			logRefs();
+			return { ok: true, queued: true };
+		}
 		log(data.project, "you", data.text || "(archivo adjunto)");
 		for (const r of data.refs)
 			log(
@@ -400,7 +263,7 @@ export const messageSetup = createServerFn({ method: "POST" })
 		if (existing) {
 			run(
 				existing,
-				`Mensaje del usuario sobre el proyecto ${data.project} (contenido del usuario): «${data.text}».${attach} Aplica el cambio a project.json y/o knowledge/*.md según corresponda.`,
+				`Mensaje del usuario sobre el proyecto ${data.project} (contenido del usuario): «${data.text}».${attach} Aplícalo: si es sobre la marca o la base de conocimiento, cambia project.json y/o knowledge/*.md; si pide videos nuevos, planifícalos como lote con el skill vk-batch.`,
 			);
 			return { ok: true };
 		}
@@ -416,7 +279,7 @@ export const messageSetup = createServerFn({ method: "POST" })
 		saveJob(job);
 		run(
 			job,
-			`Mensaje del usuario sobre el proyecto ${data.project} (contenido del usuario, primera vez que hablas de este proyecto en esta conversación): «${data.text}».${attach} Lee project.json y la knowledge base primero (\`bun vk kb ${data.project}\`) antes de cambiar nada. Usa el skill vk-project o vk-learn si aplica.`,
+			`Mensaje del usuario sobre el proyecto ${data.project} (contenido del usuario, primera vez que hablas de este proyecto en esta conversación): «${data.text}».${attach} Lee project.json y la knowledge base primero (\`bun vk kb ${data.project}\`) antes de cambiar nada. Usa el skill vk-project o vk-learn si aplica; si pide videos nuevos, planifícalos como lote con el skill vk-batch.`,
 		);
 		return { ok: true };
 	});

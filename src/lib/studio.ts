@@ -1,4 +1,5 @@
 export const STATUS_ES: Record<string, [string, string]> = {
+	queued: ["En cola", "bg-violet-300"],
 	working: ["Trabajando…", "bg-sky-400"],
 	review: ["Esperando tu aprobación", "bg-amber-300"],
 	done: ["Listo", "bg-accent"],
@@ -6,6 +7,24 @@ export const STATUS_ES: Record<string, [string, string]> = {
 	cancelled: ["Cancelado", "bg-zinc-500"],
 };
 
+/** «Nuevo video» form and batch panel choices: [value, label] */
+export const STYLE_OPTIONS: [string, string][] = [
+	["punchy", "Punchy (redes, rápido)"],
+	["motion", "Motion graphics"],
+	["story", "Storytelling"],
+	["vox", "Explainer tipo Vox"],
+	["anthem", "Manifiesto / brand film"],
+	["dev", "Dev tools"],
+	["ugc", "UGC (personajes, contenido realista)"],
+];
+export const MUSIC_OPTIONS: [string, string][] = [
+	["", "Automática (según el estilo)"],
+	["beat", "Beat (percusión, redes)"],
+	["pulse", "Pulse (electrónica)"],
+	["ambient", "Ambient (suave, sin batería)"],
+	["pluck", "Lofi pluck"],
+	["none", "Sin música"],
+];
 export const PHASE_ES: Record<string, string> = {
 	script: "Escribiendo el guion",
 	"script-changes": "Ajustando el guion",

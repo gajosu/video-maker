@@ -1,25 +1,39 @@
-// Runs Claude Code headless (claude -p, stream-json) behind the "Nuevo video" page.
-// State lives in projects/<p>/jobs/<video>/{job.json,log.jsonl} so it survives dev-server reloads.
-import { spawn } from "node:child_process";
+// Video jobs behind the "Nuevo video" page, the video chats and batches: each is a headless Claude session
+// (session.ts). State lives in projects/<p>/jobs/<video>/{job.json,log.jsonl,inbox.jsonl} so it survives
+// dev-server reloads. Up to MAX_JOBS run at once; the rest wait as "queued" and a scheduler (pump) starts them.
 import {
-	appendFileSync,
 	existsSync,
 	mkdirSync,
 	readdirSync,
 	readFileSync,
-	renameSync,
-	rmSync,
-	statSync,
 	writeFileSync,
 } from "node:fs";
-import { homedir } from "node:os";
-import { basename, join } from "node:path";
-import { loadManifest } from "../../cli/lib/assets.ts";
-import { projectDir, ROOT, videoDir } from "../../cli/lib/paths.ts";
-import { listRefs, loadAnalysis, refsDir } from "../../cli/lib/refs.ts";
+import { join } from "node:path";
+import {
+	hasInbox,
+	type LogEvent,
+	type LogKind,
+	logTo,
+	queueMessage as queueIn,
+	readLogFrom,
+} from "../../cli/lib/inbox.ts";
+import { withLockSync } from "../../cli/lib/lock.ts";
+import { PROJECTS_DIR, projectDir } from "../../cli/lib/paths.ts";
+import { listProjects } from "../../cli/lib/project.ts";
+import { mediaDiff, mediaSnap, searchResults } from "./media.ts";
+import { alive, runSession } from "./session.ts";
+
+export { CLAUDE_MODEL } from "./session.ts";
+export type { LogEvent };
 
 export type Phase = "script" | "script-changes" | "build" | "change";
-export type JobStatus = "working" | "review" | "done" | "error" | "cancelled";
+export type JobStatus =
+	| "queued"
+	| "working"
+	| "review"
+	| "done"
+	| "error"
+	| "cancelled";
 export type Job = {
 	project: string;
 	video: string;
@@ -38,39 +52,25 @@ export type Job = {
 	assets?: string[];
 	/** reference files the user uploaded when creating this video (assets/refs/<name>) */
 	refs?: string[];
-	/** links to videos whose voice, pacing and style this one should study (vk-ref), never reuse */
+	/** links to videos this one should recreate as closely as possible (vk-ref), never reuse */
 	videoRefs?: string[];
 	/** Google Flow generation budget (0 = not allowed) */
 	flow?: { clips: number; images: number };
 	/** music preset override ("" = the style's default) */
 	music?: string;
+	/** the batch this video belongs to (cli/lib/batch.ts) */
+	batch?: string;
+	/** queued: the run to start when a slot frees up */
+	next?: { phase: Phase; prompt: string; at: number };
 	error?: string;
 	summary?: string;
 	cost: number;
 	createdAt: number;
 	updatedAt: number;
 };
-export type LogEvent = {
-	t: number;
-	k: "you" | "say" | "tool" | "done" | "error" | "media" | "seen";
-	x: string;
-	/** "you": id of a message queued while the job was working; "seen": that id, once Claude got it */
-	mid?: string;
-};
 
-const jobDir = (p: string, v: string) => join(projectDir(p), "jobs", v);
+export const jobDir = (p: string, v: string) => join(projectDir(p), "jobs", v);
 const jobFile = (p: string, v: string) => join(jobDir(p, v), "job.json");
-const logFile = (p: string, v: string) => join(jobDir(p, v), "log.jsonl");
-
-const alive = (pid?: number) => {
-	if (!pid) return false;
-	try {
-		process.kill(pid, 0);
-		return true;
-	} catch {
-		return false;
-	}
-};
 
 export function saveJob(j: Job) {
 	mkdirSync(jobDir(j.project, j.video), { recursive: true });
@@ -78,82 +78,17 @@ export function saveJob(j: Job) {
 	writeFileSync(jobFile(j.project, j.video), `${JSON.stringify(j, null, 1)}\n`);
 }
 
-export function log(
-	p: string,
-	v: string,
-	k: LogEvent["k"],
-	x: string,
-	mid?: string,
-) {
-	mkdirSync(jobDir(p, v), { recursive: true });
-	appendFileSync(
-		logFile(p, v),
-		`${JSON.stringify({ t: Date.now(), k, x, ...(mid ? { mid } : {}) })}\n`,
-	);
-}
-
-// ---------- messages sent while a job works ----------
-// The web appends to inbox.jsonl; cli/hooks/studio-inbox.ts hands the queue to Claude after its next tool call
-// (or keeps the turn alive if it was about to stop). Whatever is still queued when a run starts goes in its prompt.
-type Queued = { id: string; t: number; text: string; refs?: string[] };
-const inboxFile = (p: string, v: string) => join(jobDir(p, v), "inbox.jsonl");
-
-export function queueMessage(
+export const log = (p: string, v: string, k: LogKind, x: string) =>
+	logTo(jobDir(p, v), k, x);
+export const readLog = (p: string, v: string, n = 300) =>
+	readLogFrom(jobDir(p, v), n);
+/** a chat message sent while the job works: Claude gets it after its next tool call */
+export const queueMessage = (
 	p: string,
 	v: string,
 	text: string,
 	refs: string[] = [],
-): string {
-	const id = `m${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
-	mkdirSync(jobDir(p, v), { recursive: true });
-	log(p, v, "you", text || "(archivo adjunto)", id);
-	appendFileSync(
-		inboxFile(p, v),
-		`${JSON.stringify({ id, t: Date.now(), text, refs } satisfies Queued)}\n`,
-	);
-	return id;
-}
-
-const hasInbox = (p: string, v: string) => {
-	try {
-		return statSync(inboxFile(p, v)).size > 0;
-	} catch {
-		return false;
-	}
-};
-
-/** take the whole queue (atomic rename, same as the hook) and mark it delivered */
-function drainInbox(p: string, v: string): Queued[] {
-	if (!existsSync(inboxFile(p, v))) return [];
-	const taking = join(jobDir(p, v), `inbox.${process.pid}.draining`);
-	try {
-		renameSync(inboxFile(p, v), taking);
-	} catch {
-		return [];
-	}
-	const msgs = readFileSync(taking, "utf8")
-		.split("\n")
-		.flatMap((l) => {
-			try {
-				return l.trim() ? [JSON.parse(l) as Queued] : [];
-			} catch {
-				return [];
-			}
-		});
-	rmSync(taking, { force: true });
-	for (const m of msgs) log(p, v, "seen", m.id);
-	return msgs;
-}
-
-const inboxPrompt = (p: string, msgs: Queued[]) =>
-	msgs.length
-		? `\n\nMensajes del usuario enviados desde el chat mientras trabajabas o justo al terminar (contenido del usuario; aplícalos también):\n${msgs
-				.map(
-					(m) =>
-						`«${m.text}»${m.refs?.length ? ` (adjuntó: ${m.refs.map((r) => `projects/${p}/assets/refs/${r}`).join(", ")}; léelos con Read)` : ""}`,
-				)
-				.join("\n")}`
-		: "";
+) => queueIn(jobDir(p, v), text, refs);
 
 const readRaw = (p: string, v: string): Job | null =>
 	existsSync(jobFile(p, v))
@@ -172,29 +107,13 @@ export function readJob(p: string, v: string): Job | null {
 	return j;
 }
 
-export function readLog(
-	p: string,
-	v: string,
-	n = 300,
-): (LogEvent & { id: number })[] {
-	if (!existsSync(logFile(p, v))) return [];
-	const lines = readFileSync(logFile(p, v), "utf8").trim().split("\n");
-	const from = Math.max(0, lines.length - n);
-	return lines.slice(from).flatMap((l, i) => {
-		try {
-			return [{ ...(JSON.parse(l) as LogEvent), id: from + i }];
-		} catch {
-			return [];
-		}
-	});
-}
-
 export function listJobs(projects: string[]): Job[] {
 	const out: Job[] = [];
 	for (const p of projects) {
 		const dir = join(projectDir(p), "jobs");
 		if (!existsSync(dir)) continue;
 		for (const v of readdirSync(dir)) {
+			if (v.startsWith("__")) continue; // project chats (project-setup.ts)
 			const j = readJob(p, v);
 			if (j) out.push(j);
 		}
@@ -202,7 +121,9 @@ export function listJobs(projects: string[]): Job[] {
 	return out.sort((a, b) => b.updatedAt - a.updatedAt);
 }
 
-export const runningJobs = (projects: string[]) =>
+const allProjects = () => listProjects().map((p) => p.slug);
+
+export const runningJobs = (projects: string[] = allProjects()) =>
 	listJobs(projects).filter((j) => j.status === "working");
 
 /** how many videos can be built at the same time (one headless Claude each) */
@@ -210,33 +131,6 @@ export const MAX_JOBS = Math.max(
 	1,
 	Number(process.env.VK_STUDIO_MAX_JOBS) || 3,
 );
-
-/** every headless session runs on this model (VK_CLAUDE_MODEL overrides) */
-export const CLAUDE_MODEL = process.env.VK_CLAUDE_MODEL || "claude-opus-5-5";
-
-const bunBin = () => {
-	if (process.versions.bun) return process.execPath;
-	const local = join(homedir(), ".bun", "bin", "bun");
-	return existsSync(local) ? local : "bun";
-};
-const q = (s: string) => `'${s.replace(/'/g, "'\\''")}'`;
-/** --settings for a studio session: the inbox hook after every tool call and before stopping */
-const hookSettings = () => {
-	const cmd = `${q(bunBin())} ${q(join(ROOT, "cli", "hooks", "studio-inbox.ts"))}`;
-	const hook = [{ type: "command", command: cmd, timeout: 15 }];
-	return JSON.stringify({
-		hooks: {
-			PostToolUse: [{ matcher: "*", hooks: hook }],
-			Stop: [{ hooks: hook }],
-		},
-	});
-};
-
-const claudeBin = () => {
-	if (process.env.CLAUDE_BIN) return process.env.CLAUDE_BIN;
-	const local = join(homedir(), ".local", "bin", "claude");
-	return existsSync(local) ? local : "claude";
-};
 
 // Everything the pipeline needs, nothing else: in -p mode any other tool call is denied, not prompted.
 const ALLOWED = [
@@ -264,348 +158,81 @@ const SYSTEM = [
 	"Termina cada turno con un resumen breve en español (3-6 líneas) de lo que hiciste y lo que queda.",
 ].join(" ");
 
-function describe(name: string, input: Record<string, unknown>): string {
-	const f = (k: string) =>
-		typeof input[k] === "string" ? (input[k] as string) : "";
-	if (name === "Bash") return f("description") || f("command").slice(0, 140);
-	if (["Read", "Edit", "Write"].includes(name))
-		return `${{ Read: "Leyendo", Edit: "Editando", Write: "Escribiendo" }[name]} ${basename(f("file_path"))}`;
-	if (name === "Skill") return `Skill ${f("skill")}`;
-	if (name === "WebFetch") return `Leyendo ${f("url")}`;
-	if (name === "TodoWrite") return "Actualizando plan";
-	return name;
-}
-
-// ---------- media shown inline in the chat ----------
-// After every tool result we diff the asset library, the video's stills and its render, and read stock-search
-// output, so generated / added / found media appears in the chat as pictures and players, not just text.
-type MediaSnap = {
-	assets: Record<string, string>;
-	refs: Record<string, number>;
-	stills: Record<string, number>;
-	out: number;
-};
-const mtime = (f: string) => {
-	try {
-		return statSync(f).mtimeMs;
-	} catch {
-		return 0;
-	}
-};
-function mediaSnap(p: string, v: string): MediaSnap {
-	const assets: Record<string, string> = {};
-	try {
-		for (const a of Object.values(loadManifest(p).assets))
-			assets[a.name] =
-				`${a.file}|${mtime(join(projectDir(p), "assets", a.file))}`;
-	} catch {}
-	const refs: Record<string, number> = {};
-	if (existsSync(refsDir(p)))
-		for (const n of readdirSync(refsDir(p)))
-			refs[n] = mtime(join(refsDir(p), n, "analysis.json"));
-	const stills: Record<string, number> = {};
-	const sd = join(videoDir(p, v), "stills");
-	if (existsSync(sd))
-		for (const f of readdirSync(sd))
-			if (f.endsWith(".jpg")) stills[f] = mtime(join(sd, f));
-	return {
-		assets,
-		refs,
-		stills,
-		out: mtime(join(videoDir(p, v), "out", `${v}.mp4`)),
-	};
-}
-function mediaDiff(p: string, v: string, before: MediaSnap, after: MediaSnap) {
-	const lib = (() => {
-		try {
-			return loadManifest(p).assets;
-		} catch {
-			return {};
-		}
-	})();
-	for (const [name, sig] of Object.entries(after.assets)) {
-		if (before.assets[name] === sig) continue;
-		const a = lib[name];
-		if (!a || (a.kind !== "image" && a.kind !== "video")) continue;
-		log(
-			p,
-			v,
-			"media",
-			JSON.stringify({
-				type: "asset",
-				name,
-				kind: a.kind,
-				file: a.file,
-				source: a.source?.type ?? "",
-				updated: !!before.assets[name],
+/** what to do with messages that arrived when no run was listening */
+function followUp(j: Job): { phase: Phase; prompt: string } {
+	const { project: p, video: v } = j;
+	return j.status === "review"
+		? {
+				phase: "script-changes",
 				prompt:
-					"prompt" in (a.source ?? {})
-						? (a.source as { prompt?: string }).prompt?.slice(0, 200)
-						: undefined,
-				t: Date.now(),
-			}),
-		);
-	}
-	for (const [name, m] of Object.entries(after.refs)) {
-		if (!m || before.refs[name] === m) continue;
-		const meta = listRefs(p).find((r) => r.name === name);
-		const a = loadAnalysis(p, name);
-		if (!meta || !a) continue;
-		log(
-			p,
-			v,
-			"media",
-			JSON.stringify({
-				type: "reference",
-				name,
-				title: meta.title ?? name,
-				url: meta.url,
-				duration: a.video.duration,
-				shots: a.cuts?.shots,
-				avgShot: a.cuts?.avgShot,
-				wpm: a.speech?.wpm,
-				palette: [
-					...(a.palette?.main.slice(0, 4) ?? []),
-					...(a.palette?.accents.slice(0, 2) ?? []),
-				].map((c) => c.hex),
-				images: a.images ? ["hook.jpg", "timeline.jpg"] : [],
-				t: Date.now(),
-			}),
-		);
-	}
-	const newStills = Object.entries(after.stills)
-		.filter(([f, m]) => before.stills[f] !== m)
-		.map(([f]) => f)
-		.sort(
-			(a, b) => Number.parseFloat(a.slice(1)) - Number.parseFloat(b.slice(1)),
-		);
-	if (newStills.length)
-		log(
-			p,
-			v,
-			"media",
-			JSON.stringify({
-				type: "stills",
-				files: newStills.slice(0, 16),
-				t: Date.now(),
-			}),
-		);
-	if (after.out && after.out !== before.out)
-		log(
-			p,
-			v,
-			"media",
-			JSON.stringify({ type: "render", file: `out/${v}.mp4`, t: Date.now() }),
-		);
-}
-/** "bun vk asset search" output → thumbnails */
-function searchResults(text: string) {
-	const lines = text.split("\n");
-	const items: { n: number; title: string; thumb: string; source: string }[] =
-		[];
-	for (let i = 0; i < lines.length - 1; i++) {
-		const m =
-			lines[i].match(/^\s*(\d+)\. \[(\w+)\] (.+?)\s{2,}/) ??
-			lines[i].match(/^\s*(\d+)\. \[(\w+)\] (\S+)/);
-		const url = lines[i + 1].trim();
-		if (m && /^https:\/\/\S+\.(jpe?g|png|webp)/i.test(url))
-			items.push({
-				n: Number(m[1]),
-				source: m[2],
-				title: m[3].trim(),
-				thumb: url,
-			});
-	}
-	return items;
+					"Aplica al guion los mensajes nuevos del usuario (abajo). Actualiza solo script.md; sigue sin generar voz ni escenas.",
+			}
+		: {
+				phase: "change",
+				prompt: `Aplica los mensajes nuevos del usuario (abajo) a ${p}/${v}: si cambia el guion regenera la voz y ajusta scenes.js; revisa stills y vuelve a renderizar con \`bun vk render ${p} ${v}\`.`,
+			};
 }
 
-/** start (or resume) a Claude session for this job with `prompt`; returns immediately */
+/** run a phase now, or queue it if MAX_JOBS sessions are already working; returns immediately */
 export function run(job: Job, phase: Phase, prompt: string) {
-	const queued = drainInbox(job.project, job.video);
-	const args = [
-		"-p",
-		prompt + inboxPrompt(job.project, queued),
-		"--model",
-		CLAUDE_MODEL,
-		"--settings",
-		hookSettings(),
-		"--output-format",
-		"stream-json",
-		"--verbose",
-		"--permission-mode",
-		"acceptEdits",
-		"--append-system-prompt",
-		SYSTEM,
-		"--allowedTools",
-		...ALLOWED,
-	];
-	if (job.session) args.push("--resume", job.session);
-	const child = spawn(claudeBin(), args, {
-		cwd: ROOT,
-		env: {
-			...process.env,
-			VK_JOB_PROJECT: job.project,
-			VK_JOB_VIDEO: job.video,
-		},
-		stdio: ["ignore", "pipe", "pipe"],
-	});
-	job.status = "working";
-	job.phase = phase;
-	job.pid = child.pid;
-	job.error = undefined;
-	saveJob(job);
+	const busy = runningJobs().filter(
+		(j) => !(j.project === job.project && j.video === job.video),
+	).length;
+	if (busy >= MAX_JOBS) {
+		job.status = "queued";
+		job.phase = phase;
+		job.pid = undefined;
+		job.next = { phase, prompt, at: Date.now() };
+		saveJob(job);
+		return;
+	}
+	start(job, phase, prompt);
+}
+
+function start(job: Job, phase: Phase, prompt: string) {
 	const { project: p, video: v } = job;
+	job.phase = phase;
+	job.next = undefined;
 	let snap = mediaSnap(p, v);
-	let buf = "";
-	let stderr = "";
-	let lastResult: { ok: boolean; text: string } | null = null;
-	// hold the latest assistant text until we know it isn't the final answer (logged as "done")
-	let pending = "";
-	const flush = () => {
-		if (pending) log(p, v, "say", pending);
-		pending = "";
-	};
-	child.stdout.on("data", (d: Buffer) => {
-		buf += d.toString();
-		let i = buf.indexOf("\n");
-		while (i >= 0) {
-			const line = buf.slice(0, i).trim();
-			buf = buf.slice(i + 1);
-			i = buf.indexOf("\n");
-			if (!line) continue;
-			let e: Record<string, unknown>;
-			try {
-				e = JSON.parse(line);
-			} catch {
-				continue;
-			}
-			if (
-				e.type === "system" &&
-				e.subtype === "init" &&
-				typeof e.session_id === "string" &&
-				!job.session
-			) {
-				job.session = e.session_id;
-				saveJob(job);
-			}
-			if (e.type === "user") {
-				const content = ((e.message as { content?: unknown[] })?.content ??
-					[]) as Record<string, unknown>[];
-				let toolDone = false;
-				for (const c of content) {
-					if (c.type !== "tool_result") continue;
-					toolDone = true;
-					const text =
-						typeof c.content === "string"
-							? c.content
-							: Array.isArray(c.content)
-								? (c.content as Record<string, unknown>[])
-										.map((x) => (typeof x.text === "string" ? x.text : ""))
-										.join("\n")
-								: "";
-					const items = searchResults(text);
-					if (items.length) {
-						flush();
-						log(
-							p,
-							v,
-							"media",
-							JSON.stringify({
-								type: "search",
-								items: items.slice(0, 12),
-								t: Date.now(),
-							}),
-						);
-					}
-				}
-				if (toolDone) {
-					const now = mediaSnap(p, v);
-					flush();
-					mediaDiff(p, v, snap, now);
-					snap = now;
-				}
-			}
-			if (e.type === "assistant") {
-				const content = ((e.message as { content?: unknown[] })?.content ??
-					[]) as Record<string, unknown>[];
-				for (const c of content) {
-					if (
-						c.type === "text" &&
-						typeof c.text === "string" &&
-						c.text.trim()
-					) {
-						flush();
-						pending = c.text.trim();
-					}
-					if (c.type === "tool_use") {
-						flush();
-						log(
-							p,
-							v,
-							"tool",
-							describe(
-								String(c.name),
-								(c.input ?? {}) as Record<string, unknown>,
-							),
-						);
-					}
-				}
-			}
-			if (e.type === "result") {
-				lastResult = {
-					ok: !e.is_error && e.subtype === "success",
-					text: String(e.result ?? ""),
-				};
-				if (typeof e.total_cost_usd === "number") job.cost += e.total_cost_usd;
-				if (typeof e.session_id === "string") job.session = e.session_id;
-			}
-		}
-	});
-	child.stderr.on("data", (d: Buffer) => {
-		stderr = (stderr + d.toString()).slice(-2000);
-	});
-	child.on("close", (code) => {
-		const j = readRaw(p, v) ?? job;
-		if (j.status === "cancelled") return;
-		j.pid = undefined;
-		j.session = job.session ?? j.session;
-		j.cost = job.cost;
-		const res = lastResult as { ok: boolean; text: string } | null;
-		if (!res?.ok || pending.trim() !== res.text.trim()) flush();
-		if (res?.ok) {
-			j.status =
-				phase === "script" || phase === "script-changes" ? "review" : "done";
-			j.error = undefined;
-			j.summary = res.text;
-			log(p, v, "done", res.text);
-			// a message that landed after the Stop hook's last look: keep going instead of leaving it queued
-			if (hasInbox(p, v)) {
-				saveJob(j);
-				const scriptPhase = j.status === "review";
-				run(
-					j,
-					scriptPhase ? "script-changes" : "change",
-					scriptPhase
-						? "Aplica al guion los mensajes nuevos del usuario (abajo). Actualiza solo script.md; sigue sin generar voz ni escenas."
-						: `Aplica los mensajes nuevos del usuario (abajo) a ${p}/${v}: si cambia el guion regenera la voz y ajusta scenes.js; revisa stills y vuelve a renderizar con \`bun vk render ${p} ${v}\`.`,
+	const media = (k: LogKind, x: string) => log(p, v, k, x);
+	runSession({
+		job,
+		dir: jobDir(p, v),
+		project: p,
+		prompt,
+		allowed: ALLOWED,
+		system: SYSTEM,
+		save: saveJob,
+		reload: () => readRaw(p, v),
+		onToolResult: (text) => {
+			const items = searchResults(text);
+			if (items.length)
+				media(
+					"media",
+					JSON.stringify({
+						type: "search",
+						items: items.slice(0, 12),
+						t: Date.now(),
+					}),
 				);
-				return;
+			const now = mediaSnap(p, v);
+			mediaDiff(media, p, v, snap, now);
+			snap = now;
+		},
+		onFinish: (j, res) => {
+			if (res.ok) {
+				j.status =
+					phase === "script" || phase === "script-changes" ? "review" : "done";
+				j.summary = res.text;
 			}
-		} else {
-			j.status = "error";
-			j.error =
-				res?.text || stderr.trim() || `claude terminó con código ${code}`;
-			log(p, v, "error", j.error);
-		}
-		saveJob(j);
-	});
-	child.on("error", (err) => {
-		const j = readRaw(p, v) ?? job;
-		j.status = "error";
-		j.pid = undefined;
-		j.error = `No se pudo iniciar Claude Code: ${err.message}`;
-		log(p, v, "error", j.error);
-		saveJob(j);
+			saveJob(j);
+			// a message that landed after the Stop hook's last look: keep going instead of leaving it queued
+			if (res.ok && hasInbox(jobDir(p, v))) {
+				const f = followUp(j);
+				start(j, f.phase, f.prompt);
+			}
+			pump();
+		},
 	});
 }
 
@@ -615,6 +242,74 @@ export function cancel(p: string, v: string) {
 	if (j.pid && alive(j.pid)) process.kill(j.pid, "SIGTERM");
 	j.status = "cancelled";
 	j.pid = undefined;
+	j.next = undefined;
 	log(p, v, "error", "Cancelado por el usuario.");
 	saveJob(j);
+	pump();
 }
+
+// ---------- scheduler ----------
+// Starts queued jobs (oldest first) while there are free slots, lets other modules add work (batches being
+// launched, see batch.ts), and wakes idle jobs that got messages from the terminal (`bun vk batch msg`).
+const extraWork: (() => void)[] = [];
+export const onPump = (fn: () => void) => {
+	if (!extraWork.includes(fn)) extraWork.push(fn);
+};
+
+let pumping = false;
+export function pump() {
+	if (pumping) return;
+	pumping = true;
+	try {
+		// one scheduler at a time even with two servers running (e.g. a second `bun run dev`): whoever holds the
+		// lock decides; the other skips this round, so a queued job is never started twice
+		withLockSync(join(PROJECTS_DIR, ".scheduler.lock"), schedule, {
+			timeoutMs: 300,
+		});
+	} catch (e) {
+		// a timeout means another process is scheduling right now; anything else is a real problem
+		if (!String((e as Error).message).startsWith("timed out"))
+			console.error("[studio] scheduler:", (e as Error).message);
+	} finally {
+		pumping = false;
+	}
+}
+
+function schedule() {
+	for (const fn of extraWork) {
+		try {
+			fn();
+		} catch (e) {
+			console.error("[studio] scheduler:", (e as Error).message);
+		}
+	}
+	const jobs = listJobs(allProjects());
+	let free = MAX_JOBS - jobs.filter((j) => j.status === "working").length;
+	for (const j of jobs)
+		if (
+			(j.status === "review" || j.status === "done" || j.status === "error") &&
+			hasInbox(jobDir(j.project, j.video))
+		) {
+			const f = followUp(j);
+			j.status = "queued";
+			j.next = { ...f, at: Date.now() };
+			saveJob(j);
+		}
+	const queued = listJobs(allProjects())
+		.filter((j) => j.status === "queued" && j.next)
+		.sort((a, b) => (a.next?.at ?? 0) - (b.next?.at ?? 0));
+	for (const j of queued) {
+		if (free <= 0) break;
+		const n = j.next as NonNullable<Job["next"]>;
+		start(j, n.phase, n.prompt);
+		free--;
+	}
+}
+
+// one timer per server process, surviving hot reloads (it calls the latest pump)
+const g = globalThis as unknown as {
+	__vkPump?: () => void;
+	__vkPumpTimer?: ReturnType<typeof setInterval>;
+};
+g.__vkPump = pump;
+g.__vkPumpTimer ??= setInterval(() => g.__vkPump?.(), 2000);
