@@ -1,0 +1,176 @@
+# Grokbot → video-maker integration
+
+A non-interactive CLI path for handing a finished content **package** (narration script +
+background-music link + cover headlines + visual prompts/images) to video-kit and getting a
+rendered vertical MP4 back, with no human in the loop until the final review. Built for
+Atlas Misterioso Bot, running on a separate machine that can only reach this repo through
+shell commands (e.g. `wsl -e bash -lc "cd ~/projects/video-maker && bun vk package …"`).
+
+## What it does
+
+`bun vk package <project> <path>`:
+
+1. **Ingests** the package (fast, synchronous, no network beyond copying local files you already
+   supplied): writes `script.md` (narration split into caption-sized lines, verbatim — facts are
+   never rewritten) and `scenes.js` (a single cinematic photo-slideshow scene: every visual prompt
+   gets an even slice of the whole runtime with a Ken Burns pan, independent of caption line
+   breaks), archives the narration/headlines/music link into `knowledge/videos/<slug>.md`, copies
+   any images you already supplied, and files an open asset **request** for every visual prompt
+   that still needs an image.
+2. **Starts a background job** and returns immediately, printing the job's status JSON (see
+   below). The job then, in order: generates the missing images (OpenAI `gpt-image-1`, or
+   `gpt-image-2` if you set `VK_IMAGE_MODEL`), tries to download the given music link, runs the
+   project's configured ElevenLabs voice, validates the result (the same checks `bun vk check`
+   runs), grabs a couple of preview stills, and renders the final MP4.
+
+`bun vk package status <project> <video>` prints the current job state as JSON — poll this
+instead of waiting on the first command (renders take minutes; a shell with a short timeout can
+disconnect right after the job starts and the render keeps going in the background).
+
+`bun vk package resume <project> <video>` re-runs the job for a video that already exists —
+safe to call after a failure: it skips whatever already succeeded (images already generated,
+music already downloaded, voice already recorded) and retries from there. This is also how you
+recover from a crashed worker (see `state: "error"` below).
+
+## Exact commands
+
+```bash
+# 1) hand over a package (a directory or a single file), get a job back immediately
+bun vk package atlas-misterioso /path/to/package-dir
+bun vk package atlas-misterioso /path/to/package-dir --images /path/to/images-dir   # if not package-dir/images/
+bun vk package atlas-misterioso /path/to/guion.md                                  # a lone markdown file also works
+bun vk package atlas-misterioso /path/to/package.json --video my-custom-slug        # JSON package, explicit slug
+
+# 2) poll status until state is "done" or "error"
+bun vk package status atlas-misterioso solnitsata-sal-cerveza-y-una-ciudad-amur
+
+# 3) if it errored, fix the cause (see job.error) and resume — already-done steps are skipped
+bun vk package resume atlas-misterioso solnitsata-sal-cerveza-y-una-ciudad-amur
+
+# ingest only, no spend, no background job — inspect script.md/scenes.js before committing to a render
+bun vk package atlas-misterioso /path/to/package-dir --dry-run
+```
+
+Flags: `--video <slug>` (default: slugified from the package title), `--images <dir>` (default:
+`<package dir>/images` if it exists), `--voice <elevenlabs id>` (default: the project's configured
+voice), `--style <name>` (default: the project's configured `format.style` — already `story` for
+`atlas-misterioso`, a good fit for mystery/documentary content), `--dry-run` (ingest only).
+
+Output path on success: `projects/<project>/videos/<video>/out/<video>.mp4` (also given as
+`job.output`, a path relative to the repo root). A couple of preview stills land in
+`projects/<project>/videos/<video>/stills/`.
+
+## Package format
+
+### Markdown (the format Grokbot already produces — see `ejemplo-guion-solnitsata.md`)
+
+Always the same four `##` sections, in order, under one `# <channel> — <title>` heading:
+
+```md
+# Atlas Misteriosos — <Title>
+
+## 1. Guión narrativo
+<the narration, one or more paragraphs, used as-is>
+
+## 2. Música de fondo
+Música de fondo: [<label>](<https://pixabay.com/or/mixkit link>) — <description, ignored>
+
+## 3. Titulares de portada
+1. <headline>
+2. <headline>
+...
+
+## 4. <N> prompts visuales
+01 — <Spanish title, ignored>
+<English image-generation prompt>
+
+02 — <Spanish title, ignored>
+<English image-generation prompt>
+...
+```
+
+- The title is taken from the part of the `#` heading after the first `—` (falls back to the
+  whole heading if there's no `—`).
+- Section 2's music link is optional; if present but not a direct audio URL, the job falls back
+  to the style's default music preset (see **Known limitations**).
+- Section 3's headlines: only numbered lines are read; headline #1 is used as an optional on-screen
+  hook/title card at the very start of the video.
+- Section 4 needs at least one `NN — title` block followed by its prompt text; the count doesn't
+  have to be exactly 20 — whatever's there is used.
+- If you already generated the images (e.g. with `gpt-image-2`), drop them in a sibling `images/`
+  folder next to the markdown file (or pass `--images <dir>`), named so the leading number matches
+  the prompt: `01.png`, `01-la-colina-de-la-sal.png`, `1_whatever.jpg` all match prompt `01`.
+
+### JSON (equivalent, if you'd rather send structured data)
+
+```json
+{
+  "title": "Solnitsata: sal, cerveza y una ciudad amurallada de hace 6.500 años",
+  "narration": "Cerca de Provadia, en el noreste de Bulgaria… (full text, \n\n between paragraphs)",
+  "music": { "url": "https://cdn.example.com/track.mp3", "label": "Ancient Civ (The_Mountain, Pixabay)" },
+  "headlines": ["Cerveza hace 6.500 años: el hallazgo en la ciudad de la sal", "..."],
+  "visuals": [
+    { "id": "01", "title": "La colina de la sal", "prompt": "Ultra-realistic cinematic vertical 9:16 …", "image": "images/01.png" },
+    { "id": "02", "title": "…", "prompt": "…" }
+  ]
+}
+```
+
+`music` and each visual's `image` are optional. `image` paths are resolved relative to the
+package's own directory (or you can still pass `--images <dir>` for visuals without an inline
+`image`). Save this as `package.json` inside a directory you hand to `bun vk package`, or as a
+standalone `.json` file.
+
+## Job status JSON
+
+```jsonc
+{
+  "project": "atlas-misterioso",
+  "video": "solnitsata-sal-cerveza-y-una-ciudad-amur",
+  "source": "grokbot-package",
+  "state": "queued" | "running" | "done" | "error",
+  "step": "queued" | "images" | "music" | "voice" | "check" | "stills" | "render" | "done",
+  "progress": 0.85,               // 0..1, coarse (per pipeline step, not per-frame)
+  "pid": 12345,                   // worker process id (used to detect a crashed job on the next status read)
+  "error": null,                  // set + state:"error" if a step failed; message is the underlying command's output
+  "warnings": [                   // non-fatal: job still finishes, but check these
+    "music download failed (…); using the style's default music preset instead.",
+    "OPENAI_API_KEY not set: 20 image(s) left as open requests (the render uses placeholders for them)."
+  ],
+  "output": "projects/atlas-misterioso/videos/solnitsata-sal-cerveza-y-una-ciudad-amur/out/solnitsata-sal-cerveza-y-una-ciudad-amur.mp4",
+  "stills": ["projects/atlas-misterioso/videos/solnitsata-sal-cerveza-y-una-ciudad-amur/stills/t1.jpg", "…"],
+  "package": { "sourcePath": "/path/given/to/bun-vk-package", "title": "…", "visuals": 20, "imagesProvided": 0, "imagesToGenerate": 20 },
+  "startedAt": 1790614346510,
+  "updatedAt": 1790616640935
+}
+```
+
+State lives at `projects/<project>/jobs/<video>/pkg.json` (+ `pkg-log.jsonl` for a step-by-step
+log) — a different filename from the web Studio's own `jobs/<video>/job.json`, so the two job
+runners never read or clobber each other's records. A job whose `state` is `"running"` but whose
+`pid` is no longer alive (crash, machine restart) flips to `"error"` the next time it's read, with
+a message pointing at `package resume`.
+
+## Known limitations (read before relying on this for a real drop)
+
+- **Pixabay/Mixkit page links usually won't download.** Both sites serve their *music page* behind
+  a Cloudflare/JS challenge (verified while building this: a plain fetch gets an HTML challenge
+  page, not audio, `403`). A **direct CDN file URL** (ending in `.mp3`, no page chrome) downloads
+  fine. When the link doesn't resolve to real audio, the job logs a warning and falls back to the
+  project's/style's default music preset (`ambient` for `story`) rather than failing the whole
+  video — but if you want the *exact* supplied track, download it yourself and either host it
+  somewhere fetchable, or add it locally first (`bun vk asset add <project> <file> --name bgmusic
+  --kind music`) before running `bun vk package`.
+- **Image generation needs `OPENAI_API_KEY`.** If it's not set, every visual prompt without a
+  supplied image is left as an open request; the render still completes, using the engine's
+  built-in "missing asset" placeholder for those beats (a clearly-labeled striped frame, not a
+  silent failure) — check `job.warnings` and `bun vk asset requests <project>`. There's no
+  automatic stock-photo fallback for AI-image prompts (English, often fictional/historical
+  reconstructions) — stock search wouldn't reliably match, so it's not wired in.
+- **`bun vk voice` needs `ELEVENLABS_API_KEY`** and the project's `project.json` `voice.voiceId`
+  set — this is a hard requirement, the job fails clearly if either is missing.
+- **One package = one video**, rendered with the project's already-configured brand/voice/style.
+  There's no per-request override of the ElevenLabs voice beyond `--voice <id>`, and no editing
+  pass afterwards — for changes, either edit `script.md`/`scenes.js` by hand and `bun vk package
+  resume`, or use the existing web Studio chat (`/p/<project>/v/<video>`, any terminal-made video
+  gets a job record on first message there too).

@@ -22,7 +22,10 @@ import { resolveStyle, STYLES } from "./lib/styles.ts";
 import { cuesFromAlignment, cuesFromSilence } from "./lib/cues.ts";
 import { addShared, cloneVoice, FREE_LIBRARY_MSG, LATAM_ACCENTS, listShared, listVoices, type SharedVoice, speak, tier } from "./lib/elevenlabs.ts";
 import { run } from "./lib/ffmpeg.ts";
+import { ingestPackage } from "./lib/ingest.ts";
+import { type PkgJob, readJob, runPackageJob, saveJob, spawnWorker } from "./lib/job.ts";
 import { assertSlug, PROJECTS_DIR, projectDir, ROOT, videoDir } from "./lib/paths.ts";
+import { loadPackage, slugifyVideo } from "./lib/pkg.ts";
 import { type Cues, listProjects, listVideos, loadProject, loadVideo, readKnowledge } from "./lib/project.ts";
 import { exportEvents, openVideo, renderFrames, renderStills } from "./lib/render.ts";
 import { renderSonicPi } from "./lib/sonicpi.ts";
@@ -49,6 +52,12 @@ const HELP = `video-kit — punchy vertical videos from a script
   bun vk mix <project> <video>          re-mix audio only (build/audio.wav, heard in the preview)
   bun vk stills <project> <video> [t ...] [--dark|--light]  JPG previews -> stills/
   bun vk render <project> <video> [--dark|--light]        final MP4 -> out/<video>.mp4
+  bun vk package <project> <path> [--video slug] [--images dir] [--voice id] [--style s] [--dry-run]
+                                         ingest a pre-written package (script + music link + headlines +
+                                         visual prompts/images, see docs/grokbot-integration.md) and render
+                                         it in the background; prints the job status immediately
+  bun vk package status <project> <video>   machine-readable JSON job status
+  bun vk package resume <project> <video>   re-run the background job for an existing package video
 
 Preview everything at http://localhost:3000 with \`bun run dev\`.`;
 
@@ -607,6 +616,72 @@ const commands: Record<string, () => Promise<void> | void> = {
 		rmSync(join(build, "video.mp4"), { force: true });
 		console.log(out);
 	},
+
+	async package() {
+		const [sub, ...rest] = args;
+		if (sub === "status" || sub === "resume" || sub === "worker") {
+			const [p, v] = rest;
+			if (!p || !v) throw new Error(`usage: bun vk package ${sub} <project> <video>`);
+			assertSlug(p, "project");
+			assertSlug(v, "video");
+			if (sub === "status") {
+				const j = readJob(p, v);
+				if (!j) throw new Error(`no package job for ${p}/${v}`);
+				console.log(JSON.stringify(j, null, 1));
+				return;
+			}
+			if (sub === "worker") {
+				await runPackageJob(p, v);
+				return;
+			}
+			// resume
+			const existing = readJob(p, v);
+			if (!existing) throw new Error(`no package job for ${p}/${v} (run \`bun vk package <project> <path to package>\` first)`);
+			if (existing.state === "running") throw new Error(`job already running (pid ${existing.pid})`);
+			existing.state = "queued";
+			existing.step = "queued";
+			existing.progress = 0;
+			existing.error = undefined;
+			saveJob(existing);
+			existing.pid = spawnWorker(p, v);
+			saveJob(existing);
+			console.log(JSON.stringify(existing, null, 1));
+			return;
+		}
+
+		const [p, path] = [sub, rest[0]];
+		if (!p || !path) throw new Error("usage: bun vk package <project> <path to package> [--video slug] [--images dir] [--voice id] [--style s] [--dry-run]");
+		assertSlug(p, "project");
+		const { pkg, dir } = loadPackage(path);
+		const video = str("video") ?? slugifyVideo(pkg.title, p);
+		assertSlug(video, "video");
+		const imagesDir = str("images") ?? (existsSync(join(dir, "images")) ? join(dir, "images") : undefined);
+		const result = ingestPackage(p, video, pkg, dir, path, { imagesDir, style: str("style"), voice: str("voice") });
+		console.log(
+			`ingested → ${result.dir}\n  ${result.lines} script lines, ${result.imagesProvided} image(s) provided, ${result.imagesToGenerate} to generate${result.musicPending ? ", music pending download" : ""}`,
+		);
+		if (flags["dry-run"]) return;
+
+		const job: PkgJob = {
+			project: p,
+			video,
+			source: "grokbot-package",
+			state: "queued",
+			step: "queued",
+			progress: 0,
+			warnings: [],
+			stills: [],
+			package: { sourcePath: path, title: pkg.title, visuals: pkg.visuals.length, imagesProvided: result.imagesProvided, imagesToGenerate: result.imagesToGenerate },
+			musicUrl: pkg.music?.url,
+			musicLabel: pkg.music?.label,
+			startedAt: Date.now(),
+			updatedAt: Date.now(),
+		};
+		saveJob(job);
+		job.pid = spawnWorker(p, video);
+		saveJob(job);
+		console.log(JSON.stringify(job, null, 1));
+	},
 };
 
 const fn = commands[cmd ?? "help"];
@@ -615,7 +690,7 @@ if (!fn) {
 	process.exit(1);
 }
 try {
-	if (args[0] && !["voices", "help", "asset", "styles"].includes(cmd)) assertSlug(args[0], "project");
+	if (args[0] && !["voices", "help", "asset", "styles", "package"].includes(cmd)) assertSlug(args[0], "project");
 	await fn();
 } catch (e) {
 	console.error(`✗ ${(e as Error).message}`);
