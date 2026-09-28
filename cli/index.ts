@@ -58,6 +58,8 @@ const HELP = `video-kit — punchy vertical videos from a script
                                          it in the background; prints the job status immediately
   bun vk package status <project> <video>   machine-readable JSON job status
   bun vk package resume <project> <video>   re-run the background job for an existing package video
+                                         (images use gpt-image-2 by default; override with VK_IMAGE_MODEL,
+                                         VK_IMAGE_CONCURRENCY caps parallel image requests, default 5)
 
 Preview everything at http://localhost:3000 with \`bun run dev\`.`;
 
@@ -671,7 +673,7 @@ const commands: Record<string, () => Promise<void> | void> = {
 			progress: 0,
 			warnings: [],
 			stills: [],
-			package: { sourcePath: path, title: pkg.title, visuals: pkg.visuals.length, imagesProvided: result.imagesProvided, imagesToGenerate: result.imagesToGenerate },
+			package: { sourcePath: path, title: pkg.title, visuals: pkg.visuals.length, imagesProvided: result.imagesProvided, imagesToGenerate: result.imagesToGenerate, imagesDone: 0 },
 			musicUrl: pkg.music?.url,
 			musicLabel: pkg.music?.label,
 			startedAt: Date.now(),

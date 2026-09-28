@@ -19,24 +19,42 @@ const tmpFile = (p: string, name: string) => {
 
 const SIZES = { portrait: "1024x1536", landscape: "1536x1024", square: "1024x1024" } as const;
 
-export async function genImage(p: string, name: string, prompt: string, shape: keyof typeof SIZES = "portrait") {
+/** Thrown by a failed OpenAI call, with the HTTP status attached so callers can decide whether to retry. */
+export class OpenAIError extends Error {
+	status?: number;
+	constructor(message: string, status?: number) {
+		super(message);
+		this.name = "OpenAIError";
+		this.status = status;
+	}
+}
+
+export async function genImage(
+	p: string,
+	name: string,
+	prompt: string,
+	shape: keyof typeof SIZES = "portrait",
+	opts: { model?: string; timeoutMs?: number } = {},
+) {
 	const key = process.env.OPENAI_API_KEY;
 	if (!key)
 		throw new Error(
 			"OPENAI_API_KEY is not set. Alternatives: `vk asset search` (stock), `vk asset html` (render HTML), or generate the image elsewhere and `vk asset add` it.",
 		);
-	const model = process.env.VK_IMAGE_MODEL ?? "gpt-image-1";
+	const model = opts.model ?? process.env.VK_IMAGE_MODEL ?? "gpt-image-1";
+	const timeoutMs = opts.timeoutMs ?? 180_000;
 	const res = await fetch("https://api.openai.com/v1/images/generations", {
 		method: "POST",
 		headers: { Authorization: `Bearer ${key}`, "content-type": "application/json" },
 		body: JSON.stringify({ model, prompt, size: SIZES[shape], n: 1 }),
+		signal: AbortSignal.timeout(timeoutMs),
 	});
-	if (!res.ok) throw new Error(`OpenAI ${res.status}: ${(await res.text()).slice(0, 400)}`);
+	if (!res.ok) throw new OpenAIError(`OpenAI ${res.status}: ${(await res.text()).slice(0, 400)}`, res.status);
 	const j = await res.json();
 	const d = j.data?.[0];
 	const f = tmpFile(p, `${name}.png`);
 	if (d?.b64_json) writeFileSync(f, Buffer.from(d.b64_json, "base64"));
-	else if (d?.url) writeFileSync(f, Buffer.from(await (await fetch(d.url)).arrayBuffer()));
+	else if (d?.url) writeFileSync(f, Buffer.from(await (await fetch(d.url, { signal: AbortSignal.timeout(timeoutMs) })).arrayBuffer()));
 	else throw new Error("OpenAI returned no image");
 	return addFile(p, f, { name, kind: "image", source: { type: "openai", prompt, model }, license: "own", credit: `generated with ${model}` });
 }
