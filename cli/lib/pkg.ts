@@ -7,15 +7,77 @@ import { dirname, extname, isAbsolute, join, resolve } from "node:path";
 import { projectDir } from "./paths.ts";
 
 export type PackageVisual = { id: string; title: string; prompt: string; image?: string };
+/** One beat of the house "story" layout: one or more images (crossfaded if several), one on-screen
+ *  caption (already stripped of `*hl*` markup, with the matching word indexes), an optional sfx name,
+ *  and the beat's exact voiced line(s). */
+export type PackageSceneBeat = { images: string[]; caption: string; hl: number[]; sfx?: string; voice: string[] };
+export type PackageScenes = { place?: string; finalTitle?: string; beats: PackageSceneBeat[] };
 export type Package = {
 	title: string;
 	narration: string;
 	music?: { url: string; label?: string };
 	headlines: string[];
 	visuals: PackageVisual[];
+	/** Optional "## 5. Escenas" section (or its JSON equivalent): an exact beat-by-beat scene plan. */
+	scenes?: PackageScenes;
 };
 
 const pad2 = (n: string | number) => String(n).padStart(2, "0");
+
+/** `*word*` / `*two words*` -> plain text + the hl word indexes (asterisks stripped). Counts words by
+ *  their position in the star-stripped text, so punctuation glued to a `*word*` (`*Solnitsata*:`) stays
+ *  attached to that word instead of becoming its own token. */
+export function parseCaptionMarkup(raw: string): { text: string; hl: number[] } {
+	const text = raw
+		.replace(/\*/g, "")
+		.trim()
+		.replace(/\s+/g, " ");
+	const hl: number[] = [];
+	const re = /\*([^*]+)\*/g;
+	let m: RegExpExecArray | null;
+	// biome-ignore lint/suspicious/noAssignInExpressions: standard regex-exec-in-while loop
+	while ((m = re.exec(raw))) {
+		const before = raw.slice(0, m.index).replace(/\*/g, "").trim();
+		const wordsBefore = before ? before.split(/\s+/).length : 0;
+		const span = m[1].trim().split(/\s+/).filter(Boolean).length;
+		for (let i = 0; i < span; i++) hl.push(wordsBefore + i);
+	}
+	return { text, hl };
+}
+
+/** The optional "## 5. Escenas" section: `Lugar:` / `Título final:` header lines, then `N. img <ids> |
+ *  <caption> [| sfx <name>]` beats, each followed by one or more indented voiced lines. */
+function parseScenesSection(body: string): PackageScenes | undefined {
+	if (!body.trim()) return undefined;
+	const place = body.match(/^Lugar:\s*(.+)$/m)?.[1]?.trim();
+	const finalTitle = body.match(/^T[íi]tulo final:\s*(.+)$/m)?.[1]?.trim();
+	const beats: PackageSceneBeat[] = [];
+	for (const block of body.split(/\n(?=\s*\d+\.\s)/)) {
+		const lines = block.split(/\r?\n/);
+		const head = lines[0]?.match(/^\s*\d+\.\s*(.+)$/)?.[1]?.trim();
+		if (!head) continue; // the Lugar:/Título final: preface block, or a stray blank chunk
+		const parts = head.split("|").map((s) => s.trim());
+		const imgIds = parts[0]?.match(/^img\s+(.+)$/i)?.[1];
+		if (!imgIds) continue;
+		const images = imgIds
+			.split(",")
+			.map((s) => s.trim())
+			.filter(Boolean)
+			.map((n) => pad2(Number(n)));
+		const { text: caption, hl } = parseCaptionMarkup(parts[1] ?? "");
+		const sfx = parts
+			.slice(2)
+			.find((s) => /^sfx\s+/i.test(s))
+			?.replace(/^sfx\s+/i, "")
+			.trim();
+		const voice = lines
+			.slice(1)
+			.map((l) => l.trim())
+			.filter(Boolean);
+		if (images.length && caption && voice.length) beats.push({ images, caption, hl, sfx, voice });
+	}
+	return beats.length ? { place, finalTitle, beats } : undefined;
+}
 
 /** Text of a `## N. Heading` section, up to the next `## `. */
 function section(body: string, n: number): string {
@@ -35,6 +97,7 @@ export function parseMarkdownPackage(src: string): Package {
 	const musicSec = section(src, 2);
 	const headlinesSec = section(src, 3);
 	const visualsSec = section(src, 4);
+	const scenes = parseScenesSection(section(src, 5));
 
 	let music: Package["music"];
 	const mm = musicSec.match(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/);
@@ -52,7 +115,7 @@ export function parseMarkdownPackage(src: string): Package {
 
 	if (!narration) throw new Error('package markdown is missing a "## 1. Guión narrativo" section');
 	if (!visuals.length) throw new Error('package markdown is missing "## 4. … prompts visuales" entries (expected "NN — title" blocks, one prompt line each)');
-	return { title: title || "Untitled", narration, music, headlines, visuals };
+	return { title: title || "Untitled", narration, music, headlines, visuals, scenes };
 }
 
 /** Same shape as `Package`, plus an optional per-visual `image` (path, relative to the package's directory). */
@@ -61,6 +124,19 @@ function parseJsonPackage(src: string): Package {
 	const j: any = JSON.parse(src);
 	if (!j.narration || !Array.isArray(j.visuals) || !j.visuals.length)
 		throw new Error('package JSON needs at least "narration" (string) and "visuals" (non-empty array)');
+	let scenes: PackageScenes | undefined;
+	if (Array.isArray(j.scenes) && j.scenes.length) {
+		const beats: PackageSceneBeat[] = j.scenes
+			.map((s: Record<string, unknown>) => {
+				const ids = Array.isArray(s.images) ? s.images : [s.images];
+				const images = ids.filter((v: unknown) => v !== undefined && v !== null && v !== "").map((n: string | number) => pad2(n));
+				const { text, hl } = parseCaptionMarkup(String(s.caption ?? ""));
+				const voice = Array.isArray(s.voice) ? s.voice.map(String) : s.voice ? [String(s.voice)] : [];
+				return { images, caption: text, hl: Array.isArray(s.hl) ? (s.hl as number[]) : hl, sfx: s.sfx ? String(s.sfx) : undefined, voice };
+			})
+			.filter((b: PackageSceneBeat) => b.images.length && b.caption && b.voice.length);
+		if (beats.length) scenes = { place: j.place ? String(j.place) : undefined, finalTitle: j.finalTitle ? String(j.finalTitle) : undefined, beats };
+	}
 	return {
 		title: String(j.title ?? "Untitled"),
 		narration: String(j.narration),
@@ -72,6 +148,7 @@ function parseJsonPackage(src: string): Package {
 			prompt: String(v.prompt ?? ""),
 			image: v.image ? String(v.image) : undefined,
 		})),
+		scenes,
 	};
 }
 

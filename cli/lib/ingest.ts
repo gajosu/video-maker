@@ -1,11 +1,20 @@
-// Turns a parsed Grokbot Package into video-kit files: script.md + scenes.js (a single
-// cinematic photo-slideshow scene, images independent of caption line breaks), a knowledge
-// doc archiving the package's verified narration/headlines/sources, and asset requests for
-// any visual prompt without a supplied image (fulfilled later by the package job's image step).
+// Turns a parsed Grokbot Package into video-kit files: script.md + scenes.js, a knowledge doc
+// archiving the package's verified narration/headlines/sources, and asset requests for any visual
+// prompt without a supplied image (fulfilled later by the package job's image step).
+//
+// Two scene builders:
+// - House "story" layout (`buildHouseStyle`): used when the project is configured for it (style
+//   `story` + a `scenes/shared.js` providing `cap`/`channelTag`/`subscribeOutro` — checked generically,
+//   not by project name). One scene per beat from the package's "## 5. Escenas" section (or, if that
+//   section is missing, one beat auto-derived per narration sentence), mirroring the hand-made
+//   reference videos: real captions via `cap()`, a `channelTag()` + centered hook, a `subscribeOutro()`
+//   finale with a title/place card, varied Ken Burns per scene, sfx per beat.
+// - Generic slideshow (`buildScenesJs`, unchanged): the previous fallback for any other project/style —
+//   a single scene, every visual prompt getting an even time slice.
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
-import { addFile, addRequest } from "./assets.ts";
-import type { Package } from "./pkg.ts";
+import { addFile, addRequest, loadManifest } from "./assets.ts";
+import type { Package, PackageSceneBeat } from "./pkg.ts";
 import { matchImages, splitNarration } from "./pkg.ts";
 import { projectDir, videoDir } from "./paths.ts";
 import { loadProject } from "./project.ts";
@@ -23,7 +32,12 @@ export type IngestResult = {
 	imagesProvided: number;
 	imagesToGenerate: number;
 	musicPending: boolean;
+	warnings: string[];
 };
+
+const js = (s: unknown) => JSON.stringify(s);
+
+// ---------- generic fallback: single photo-slideshow scene (unchanged) ----------
 
 function scriptFrontMatter(pkg: Package, o: IngestOptions): string {
 	const rows = [`title: ${pkg.title.replace(/\n/g, " ")}`];
@@ -48,8 +62,6 @@ ${headlinesNote}
 ${lines.map((l, i) => `${i + 1}. ${l}`).join("\n")}
 `;
 }
-
-const js = (s: unknown) => JSON.stringify(s);
 
 function buildScenesJs(pkg: Package, lines: string[], images: string[], lastLine: number): string {
 	const hook = pkg.headlines[0] ?? null;
@@ -88,6 +100,236 @@ const SPEC=[
 `;
 }
 
+// ---------- house "story" layout: one scene per beat ----------
+
+/** Ken Burns from/to presets ([scale, x%, y%]) and dim levels, cycled per photo drawn (beat's main
+ *  image, then any crossfaded extras) so consecutive scenes never repeat the same pan/zoom. */
+const KB: { from: [number, number, number]; to: [number, number, number] }[] = [
+	{ from: [1.06, 0, -2], to: [1.2, 2, 2] },
+	{ from: [1.08, 0, -2], to: [1.2, -2, 2] },
+	{ from: [1.1, -2, 0], to: [1.24, 2, -2] },
+	{ from: [1.05, 0, 0], to: [1.18, -3, 2] },
+	{ from: [1.1, 0, 0], to: [1.22, 2, -3] },
+	{ from: [1.06, 0, -2], to: [1.16, 0, 2] },
+	{ from: [1.12, 0, 0], to: [1.02, 0, 0] },
+	{ from: [1.15, 3, -2], to: [1.28, -2, 2] },
+];
+const DARKS = [0.15, 0.2, 0.25, 0.1, 0.3, 0.18, 0.22, 0.12];
+
+const KNOWN_SFX = new Set(["pop", "ok", "skip", "dm", "impact", "price", "cta", "whoosh"]);
+const SFX_FRAC: Record<string, number> = { pop: 0.3, impact: 0.25, camera: 0.3, ok: 0.6, price: 0.5, dm: 0.2, skip: 0.3 };
+
+/** `sfx <name>` is only kept if it's a built-in synth or an sfx asset already in the project's manifest
+ *  (matches the engine's own "unknown names without a sample are ignored" rule) — otherwise warn and drop it. */
+function validateSfx(name: string | undefined, project: string, warnings: string[]): string | undefined {
+	if (!name) return undefined;
+	if (KNOWN_SFX.has(name)) return name;
+	const asset = loadManifest(project).assets[name];
+	if (asset?.kind === "sfx") return name;
+	warnings.push(`unknown sfx "${name}" in a scene beat (not a built-in sound or an sfx asset in the project) — ignored`);
+	return undefined;
+}
+
+/** Deterministic, sane shortening: sentences already ≤8 words are used as-is; longer ones are cut at
+ *  the *longest* natural comma/colon break that still keeps 3–8 words (the first break is often a
+ *  near-empty fragment, e.g. "Cerca de Provadia," — the longest one that fits keeps far more of the
+ *  actual content); otherwise the full sentence is kept (never an arbitrary word-count truncation). */
+function shortenCaption(sentence: string): string {
+	const clean = (s: string) => s.trim().replace(/[.,!?;:…]+$/, "");
+	const words = sentence.trim().split(/\s+/);
+	if (words.length <= 8) return clean(sentence);
+	let best: string | undefined;
+	const re = /[,:;]\s/g;
+	let m: RegExpExecArray | null;
+	// biome-ignore lint/suspicious/noAssignInExpressions: standard regex-exec-in-while loop
+	while ((m = re.exec(sentence))) {
+		const candidate = sentence.slice(0, m.index).trim();
+		const n = candidate.split(/\s+/).length;
+		if (n >= 3 && n <= 8) best = candidate; // keep updating: the last (longest) fit wins
+	}
+	return clean(best ?? sentence);
+}
+
+/** Highlight a lone number token (a year, a count) if the caption has one — the only keyword we can
+ *  pick out without inventing content; otherwise no highlight (still a valid house caption). */
+function autoHl(text: string): number[] {
+	const words = text.split(" ");
+	const i = words.findIndex((w) => /^\d[\d.,]*$/.test(w));
+	return i >= 0 ? [i] : [];
+}
+
+/** Fallback beat plan when the package has no "## 5. Escenas": one beat per narration sentence,
+ *  images distributed across beats in order (carrying the last image forward when a beat gets none),
+ *  finale title = the package title before its first ":" and no place line. Beats carry bare visual
+ *  ids ("02"), same as a parsed "## 5. Escenas" section — the asset name prefix (scoped to this video,
+ *  so two packages in the same project never collide on "img01") is applied later, in `buildHouseStyle`. */
+function autoBeatsFromNarration(pkg: Package): { finalTitle: string; beats: PackageSceneBeat[] } {
+	const sentences = splitNarration(pkg.narration);
+	const visualIds = [...pkg.visuals].sort((a, b) => a.id.localeCompare(b.id)).map((v) => v.id);
+	const n = sentences.length;
+	const m = visualIds.length;
+	let lastImages: string[] = [];
+	const beats: PackageSceneBeat[] = sentences.map((sentence, i) => {
+		const from = m ? Math.floor((i * m) / n) : 0;
+		const to = m ? Math.floor(((i + 1) * m) / n) : 0;
+		let images = visualIds.slice(from, to);
+		if (!images.length) images = lastImages.length ? lastImages : m ? [visualIds[0]] : [];
+		lastImages = images;
+		const caption = shortenCaption(sentence);
+		return { images, caption, hl: autoHl(caption), sfx: undefined, voice: [sentence] };
+	});
+	const finalTitle = (pkg.title.split(":")[0] || pkg.title).trim().toUpperCase();
+	return { finalTitle, beats };
+}
+
+const SUBSCRIBE_LINE = "{#suscribe}Suscríbete para descubrir más misterios del mundo.";
+
+function houseSceneName(i: number, total: number): string {
+	if (i === 0) return "hook";
+	if (i === total - 1) return "finale";
+	return `beat${i + 1}`;
+}
+
+type HouseBuild = { lines: string[]; scenesJs: string; autoScenes: boolean; imageIdsUsed: Set<string> };
+
+function buildHouseStyle(pkg: Package, project: string, video: string, warnings: string[]): HouseBuild {
+	let place: string | undefined;
+	let finalTitle: string;
+	// `beats[].images` are still bare visual ids ("02") at this point.
+	let beats: PackageSceneBeat[];
+	let autoScenes = false;
+
+	if (pkg.scenes?.beats.length) {
+		place = pkg.scenes.place;
+		finalTitle = pkg.scenes.finalTitle ?? (pkg.title.split(":")[0] || pkg.title).trim().toUpperCase();
+		beats = pkg.scenes.beats.map((b) => ({ ...b }));
+	} else {
+		autoScenes = true;
+		warnings.push('no "## 5. Escenas" section in the package — scenes were auto-generated (one beat per narration sentence); review scenes.js before publishing.');
+		const auto = autoBeatsFromNarration(pkg);
+		finalTitle = auto.finalTitle;
+		beats = auto.beats;
+	}
+
+	for (const b of beats) b.sfx = validateSfx(b.sfx, project, warnings);
+
+	const hasSubscribe = beats.some((b) => b.voice.some((l) => l.includes("{#suscribe}")));
+	if (!hasSubscribe) {
+		const last = beats[beats.length - 1];
+		last.voice = [...last.voice, SUBSCRIBE_LINE];
+	}
+
+	// Asset names are scoped to this video (`<video>-imgNN`) so two packages ingested into the same
+	// project never clobber each other's "01.png".."20.png" — see imageIdsUsed below for validation.
+	const imageIdsUsed = new Set<string>();
+	for (const b of beats) for (const id of b.images) imageIdsUsed.add(id);
+	for (const b of beats) b.images = b.images.map((id) => `${video}-img${id}`);
+
+	const lines: string[] = [];
+	const caps: { t: string; hl: number[]; nocap?: boolean }[] = [];
+	const ranges: [number, number][] = [];
+	for (const b of beats) {
+		const start = lines.length;
+		for (const voiceLine of b.voice) {
+			lines.push(voiceLine);
+			caps.push(voiceLine.includes("{#suscribe}") ? { t: "", hl: [], nocap: true } : { t: b.caption, hl: b.hl });
+		}
+		ranges.push([start, lines.length - 1]);
+	}
+
+	let kbi = 0;
+	const sceneDefs: string[] = [];
+	const specEntries: string[] = [];
+	beats.forEach((b, i) => {
+		const name = houseSceneName(i, beats.length);
+		const isHook = i === 0;
+		const isFinale = i === beats.length - 1;
+		const stmts: string[] = ["let h = '';"];
+		b.images.forEach((img, k) => {
+			const kb = KB[kbi % KB.length];
+			const dark = DARKS[kbi % DARKS.length];
+			kbi++;
+			const call = `STORY.photo(${js(img)}, lt, o.dur, { from: ${js(kb.from)}, to: ${js(kb.to)}, dark: ${dark} })`;
+			if (k === 0) stmts.push(`h += ${call};`);
+			else {
+				const frac = (k / b.images.length).toFixed(3);
+				stmts.push(`{ const op = clamp(lin(lt, o.dur * ${frac} - .3, o.dur * ${frac} + .3), 0, 1); h += '<div class="abs" style="inset:0;opacity:' + op + '">' + ${call} + '</div>'; }`);
+			}
+		});
+		if (isHook) {
+			stmts.push("h += channelTag(lt);");
+			stmts.push("h += cap(lt, o, 0, 'center', 88);");
+			stmts.push("h += STORY.vignette(0.45);");
+		} else {
+			stmts.push("h += cap(lt, o);");
+		}
+		if (isFinale) {
+			const size = finalTitle.length > 14 ? 72 : 88;
+			stmts.push("const lastContent = o.l[o.l.length - 2] || o.l[0];");
+			stmts.push("const fadeAt = lastContent[1] + 0.05, popAt = o.M.suscribe;");
+			stmts.push("h += subscribeOutro(lt, fadeAt, popAt);");
+			stmts.push("const k = clamp(lin(lt, fadeAt, fadeAt + 1), 0, 1);");
+			stmts.push(
+				`h += '<div class="abs" style="left:0;right:0;top:600px;text-align:center;color:#fff;opacity:' + k + '">' +` +
+					`'<div style="font:900 ${size}px var(--font);text-transform:uppercase;letter-spacing:-.01em;line-height:1.05">' + esc(${js(finalTitle)}) + '</div>'` +
+					(place ? ` +'<div style="margin-top:26px;font:700 36px var(--font);letter-spacing:.14em;opacity:.85">' + esc(${js(place)}) + '</div>'` : "") +
+					" + '</div>';",
+			);
+		}
+		stmts.push("return h;");
+		sceneDefs.push(`\t${name}(lt, t, o) {\n\t\t${stmts.join("\n\t\t")}\n\t},`);
+
+		const sfxParts: string[] = [];
+		if (b.sfx) sfxParts.push(`${b.sfx}: (o) => frac(o, [${SFX_FRAC[b.sfx] ?? 0.35}])`);
+		if (isFinale) sfxParts.push("cta: (o) => [o.M.suscribe]");
+		const opts = sfxParts.length ? `{ sfx: { ${sfxParts.join(", ")} } }` : "{}";
+		specEntries.push(`\t[${js(name)}, [${ranges[i][0]}, ${ranges[i][1]}], ${opts}],`);
+	});
+
+	const linesJs = caps.map((c) => (c.nocap ? '\t{ t: "", nocap: true },' : `\t{ t: ${js(c.t)}, hl: ${js(c.hl)} },`)).join("\n");
+
+	const scenesJs = `// ---------- ${pkg.title} (style: story, house layout) ----------
+// Generated by \`bun vk package\` from a Grokbot content package's "## 5. Escenas" section
+// (or auto-derived from the narration when that section is absent — see script.md).
+const LINES = [
+${linesJs}
+];
+
+const S = {
+${sceneDefs.join("\n")}
+};
+
+const SPEC = [
+${specEntries.join("\n")}
+];
+`;
+
+	return { lines, scenesJs, autoScenes, imageIdsUsed };
+}
+
+function buildHouseScriptMd(pkg: Package, lines: string[], sourcePath: string, o: IngestOptions, autoScenes: boolean): string {
+	const rows = [`title: ${pkg.title.replace(/\n/g, " ")}`, "style: story", "uses: [shared]"];
+	if (o.voice) rows.push(`voice: ${o.voice}`);
+	if (pkg.music) rows.push("music: bgmusic");
+	const front = `---\n${rows.join("\n")}\n---`;
+	const musicNote = pkg.music ? `Music: ${pkg.music.label ?? pkg.music.url} — ${pkg.music.url}` : "Music: none supplied (style default preset).";
+	const headlinesNote = pkg.headlines.length ? `Cover headlines (thumbnail/title candidates):\n${pkg.headlines.map((h) => `- ${h}`).join("\n")}` : "";
+	const scenesNote = autoScenes
+		? 'Scenes: auto-generated (no "## 5. Escenas" in the package) — one beat per narration sentence; review scenes.js before publishing.'
+		: 'Scenes: from the package\'s "## 5. Escenas" section (house Atlas Misterioso layout).';
+	return `${front}
+# ${pkg.title}
+
+Source: Grokbot package (${sourcePath}). Narration used as-is (facts pre-verified upstream, not rewritten here).
+${scenesNote}
+${musicNote}
+${headlinesNote}
+
+## Lines
+${lines.map((l, i) => `${i + 1}. ${l}`).join("\n")}
+`;
+}
+
 /** Write the video's files and asset requests. Fast/synchronous: no TTS, no image generation, no network beyond copying local files. */
 export function ingestPackage(project: string, video: string, pkg: Package, packageDir: string, sourcePath: string, o: IngestOptions = {}): IngestResult {
 	loadProject(project); // throws if the project doesn't exist
@@ -95,25 +337,54 @@ export function ingestPackage(project: string, video: string, pkg: Package, pack
 	if (existsSync(dir)) throw new Error(`${dir} already exists (pick another --video, or run \`bun vk package resume ${project} ${video}\`)`);
 	mkdirSync(dir, { recursive: true });
 
-	const lines = splitNarration(pkg.narration);
-	if (!lines.length) throw new Error("narration produced 0 lines after splitting");
+	const styleName = o.style ?? loadProject(project).format.style;
+	const houseStyle = styleName === "story" && existsSync(join(projectDir(project), "scenes", "shared.js"));
 
-	writeFileSync(join(dir, "script.md"), buildScriptMd(pkg, lines, sourcePath, o));
+	const warnings: string[] = [];
+	let lines: string[];
+	let scenesJs: string;
+	let imageIdsUsed: Set<string> | undefined;
+
+	// Image asset names are scoped to this video (`<video>-imgNN`): two packages ingested into the
+	// same project both number their visuals "01".."20", and a shared global "imgNN" name would let
+	// the second ingest silently overwrite the first video's image files.
+	const imgName = (id: string) => `${video}-img${id}`;
+
+	if (houseStyle) {
+		const built = buildHouseStyle(pkg, project, video, warnings);
+		lines = built.lines;
+		scenesJs = built.scenesJs;
+		imageIdsUsed = built.imageIdsUsed;
+		writeFileSync(join(dir, "script.md"), buildHouseScriptMd(pkg, lines, sourcePath, o, built.autoScenes));
+	} else {
+		lines = splitNarration(pkg.narration);
+		if (!lines.length) throw new Error("narration produced 0 lines after splitting");
+		writeFileSync(join(dir, "script.md"), buildScriptMd(pkg, lines, sourcePath, o));
+		const visuals = [...pkg.visuals].sort((a, b) => a.id.localeCompare(b.id));
+		const imageNames = visuals.map((v) => imgName(v.id));
+		scenesJs = buildScenesJs(pkg, lines, imageNames, lines.length - 1);
+	}
+	writeFileSync(join(dir, "scenes.js"), scenesJs);
 
 	const visuals = [...pkg.visuals].sort((a, b) => a.id.localeCompare(b.id));
-	const imageNames = visuals.map((v) => `img${v.id}`);
-	writeFileSync(join(dir, "scenes.js"), buildScenesJs(pkg, lines, imageNames, lines.length - 1));
-
+	const visualIds = new Set(visuals.map((v) => v.id));
 	const matched = matchImages(pkg.visuals, o.imagesDir, packageDir);
 	let imagesProvided = 0;
 	for (const v of visuals) {
-		const name = `img${v.id}`;
+		const name = imgName(v.id);
 		const file = matched.get(v.id);
 		if (file) {
 			addFile(project, file, { name, kind: "image", description: v.title, source: { type: "file", path: basename(file) } });
 			imagesProvided++;
 		} else {
 			addRequest(project, { name, kind: "image", description: v.prompt || v.title, video });
+		}
+	}
+	if (imageIdsUsed) {
+		for (const id of imageIdsUsed) {
+			if (visualIds.has(id)) continue;
+			warnings.push(`a scene beat references image id ${id} but the package's visual prompts section has no matching entry — left as an open request (placeholder).`);
+			addRequest(project, { name: imgName(id), kind: "image", description: `referenced by a scene beat; no visual prompt supplied for id ${id}`, video });
 		}
 	}
 
@@ -143,5 +414,6 @@ ${pkg.music ? `${pkg.music.label ?? ""} — ${pkg.music.url}` : "(none supplied)
 		imagesProvided,
 		imagesToGenerate: visuals.length - imagesProvided,
 		musicPending: !!pkg.music,
+		warnings,
 	};
 }

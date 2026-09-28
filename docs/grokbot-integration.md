@@ -11,12 +11,18 @@ shell commands (e.g. `wsl -e bash -lc "cd ~/projects/video-maker && bun vk packa
 `bun vk package <project> <path>`:
 
 1. **Ingests** the package (fast, synchronous, no network beyond copying local files you already
-   supplied): writes `script.md` (narration split into caption-sized lines, verbatim — facts are
-   never rewritten) and `scenes.js` (a single cinematic photo-slideshow scene: every visual prompt
-   gets an even slice of the whole runtime with a Ken Burns pan, independent of caption line
-   breaks), archives the narration/headlines/music link into `knowledge/videos/<slug>.md`, copies
-   any images you already supplied, and files an open asset **request** for every visual prompt
-   that still needs an image.
+   supplied): writes `script.md` (narration split into lines, verbatim — facts are never rewritten)
+   and `scenes.js`, archives the narration/headlines/music link into `knowledge/videos/<slug>.md`,
+   copies any images you already supplied, and files an open asset **request** for every visual
+   prompt that still needs an image.
+
+   For a project configured for the house "story" layout (`format.style: "story"` plus a
+   `scenes/shared.js` — this is already `atlas-misterioso`'s setup, detected generically rather than
+   by project name), `scenes.js` mirrors the channel's hand-made videos: one scene per beat from
+   your **"## 5. Escenas"** section (real on-screen captions, a channel-tag hook, a subscribe outro
+   with a title/place card, varied Ken Burns, sfx — see **Package format** below). Any other
+   project/style still gets the previous simple layout: a single cinematic photo-slideshow scene
+   where every visual prompt gets an even slice of the whole runtime.
 2. **Starts a background job** and returns immediately, printing the job's status JSON (see
    below). The job then, in order: generates the missing images (OpenAI `gpt-image-2` by default,
    override with `VK_IMAGE_MODEL`; up to `VK_IMAGE_CONCURRENCY` in parallel, default 5, each with
@@ -103,6 +109,63 @@ Música de fondo: [<label>](<https://pixabay.com/or/mixkit link>) — <descripti
   folder next to the markdown file (or pass `--images <dir>`), named so the leading number matches
   the prompt: `01.png`, `01-la-colina-de-la-sal.png`, `1_whatever.jpg` all match prompt `01`.
 
+### Section 5: `## 5. Escenas` (optional, but always send it — it's what drives the house layout)
+
+Without this section the pipeline falls back to an auto-generated scene plan (see **Fallback
+without section 5** below), which is fine but not as sharp as a hand-planned one. When you do send
+it, put it right after section 4:
+
+```md
+## 5. Escenas
+
+Lugar: PROVADIA, BULGARIA
+Título final: SOLNITSATA
+
+1. img 02 | Dos cuencos boca abajo en su *casa* | sfx pop
+   Cerca de Provadia, en el noreste de Bulgaria, hace unos seis mil quinientos años, alguien deja
+   dos cuencos boca abajo en el suelo de su casa.
+2. img 03 | La casa *ardió*
+   La casa arde antes de que nadie vuelva a levantarlos.
+3. img 01 | *Solnitsata*: la ciudad más antigua de Europa
+   Es Solnitsata, "la salinera", que sus excavadores consideran el centro urbano más antiguo de Europa.
+...
+14. img 19,20 | La ciudad de la sal, en *silencio*
+   Los terremotos derriban las murallas, los manantiales se secan… y la ciudad de la sal queda en
+   silencio bajo su propia colina.
+```
+
+- `Lugar:` (optional) → the small line under the final title card. `Título final:` (optional,
+  defaults to the package title before its first `:`) → the big uppercase final title.
+- Each beat becomes exactly one scene: `N. img <ids, comma-separated> | <on-screen caption> [| sfx <name>]`,
+  then one or more indented lines = the *exact voiced text* for that beat (numbers already spelled
+  out as words, same as section 1).
+  - `*word*` / `*two words*` in the caption = the highlighted word(s) (rendered boxed in brand
+    yellow); the asterisks are stripped from the on-screen text.
+  - Several image ids in one beat (`img 04,05`) = those images crossfade inside that one scene
+    (like a multi-shot beat in the reference videos), instead of one scene per image.
+  - `| sfx <name>` is optional. Use whatever the engine already supports (`pop`, `impact`, `ok`,
+    `camera`, `cta`, …, or the name of any `sfx`-kind asset in the project); an unrecognized name is
+    dropped with a warning in `job.warnings`, not an error.
+  - The **first** beat becomes the hook scene (channel-tag badge + centered caption over a
+    vignette); the **last** beat becomes the finale (subscribe outro + the title/place card).
+  - The voiced script used for `## Lines` is exactly the beats' voiced lines, in order — section 1
+    is not used for the voice-over when section 5 is present (it still goes into the knowledge doc
+    as the reviewed narration). The spoken subscribe line
+    (`{#suscribe}Suscríbete para descubrir más misterios del mundo.`) is appended automatically to
+    the last beat unless one of your beats already includes a `{#suscribe}` marker.
+- The equivalent JSON (see below) is accepted too.
+
+### Fallback without section 5
+
+If a package has no section 5, the house layout is still used (for a house-style project), but the
+scene plan is auto-generated: one beat per narration sentence, images distributed across beats in
+order (a beat with no image of its own reuses the previous one), a deterministic best-effort caption
+shortening (a sentence ≤8 words is used as-is; longer ones are cut at the longest comma/colon break
+that still keeps 3–8 words, otherwise the full sentence is kept — never an arbitrary truncation),
+the final title = the package title before its first `:` with no place line, and the spoken subscribe
+line appended automatically. `job.warnings` gets an entry flagging that the scenes were
+auto-generated, so review `scenes.js` before publishing.
+
 ### JSON (equivalent, if you'd rather send structured data)
 
 ```json
@@ -114,14 +177,24 @@ Música de fondo: [<label>](<https://pixabay.com/or/mixkit link>) — <descripti
   "visuals": [
     { "id": "01", "title": "La colina de la sal", "prompt": "Ultra-realistic cinematic vertical 9:16 …", "image": "images/01.png" },
     { "id": "02", "title": "…", "prompt": "…" }
+  ],
+  "place": "PROVADIA, BULGARIA",
+  "finalTitle": "SOLNITSATA",
+  "scenes": [
+    { "images": ["02"], "caption": "Dos cuencos boca abajo en su *casa*", "sfx": "pop", "voice": "Cerca de Provadia, en el noreste de Bulgaria, hace unos seis mil quinientos años, alguien deja dos cuencos boca abajo en el suelo de su casa." },
+    { "images": ["03"], "caption": "La casa *ardió*", "voice": "La casa arde antes de que nadie vuelva a levantarlos." },
+    { "images": [4, 5], "caption": "Agua *salada* que brota de la tierra", "voice": ["Aquí brota agua salada de la tierra, y sus habitantes la hierven en vasijas de barro hasta convertirla en sal."] }
   ]
 }
 ```
 
 `music` and each visual's `image` are optional. `image` paths are resolved relative to the
 package's own directory (or you can still pass `--images <dir>` for visuals without an inline
-`image`). Save this as `package.json` inside a directory you hand to `bun vk package`, or as a
-standalone `.json` file.
+`image`). `place`, `finalTitle` and `scenes` are the JSON equivalent of markdown section 5 (same
+optionality and rules — `caption` accepts the same `*word*` markup, `images` accepts numbers or
+strings, `voice` accepts a single string or an array of strings for beats with more than one
+narration line). Save this as `package.json` inside a directory you hand to `bun vk package`, or as
+a standalone `.json` file.
 
 ## Job status JSON
 
@@ -165,7 +238,9 @@ using OpenAI **`gpt-image-2`** by default for this pipeline specifically (overri
 unless you set the same env var). Each request has a **180 s timeout** (`AbortSignal`) and gets
 **up to 2 retries with backoff** (~1.5 s, ~3 s) on a timeout, a `429`, or a `5xx` — this is what
 fixes the original failure mode: one slow/hung request no longer stalls the whole job indefinitely.
-Every attempt is logged to `pkg-log.jsonl` (`image imgNN: ok`, `retry N of 2 (…)`, or `failed (…)`),
+Every attempt is logged to `pkg-log.jsonl` (`image <video>-imgNN: ok`, `retry N of 2 (…)`, or
+`failed (…)` — asset names are scoped to the video, `<video>-img01`.., so two packages in the same
+project never overwrite each other's images),
 and `job.package.imagesDone` / `imagesToGenerate` (plus `job.progress`) advance per image, not just
 per pipeline step. An image that still fails after its retries becomes a `job.warnings` entry and
 is left as an **open asset request** (the render uses a placeholder for it) — the job still

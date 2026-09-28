@@ -662,6 +662,7 @@ const commands: Record<string, () => Promise<void> | void> = {
 		console.log(
 			`ingested → ${result.dir}\n  ${result.lines} script lines, ${result.imagesProvided} image(s) provided, ${result.imagesToGenerate} to generate${result.musicPending ? ", music pending download" : ""}`,
 		);
+		for (const w of result.warnings) console.log(`⚠ ${w}`);
 		if (flags["dry-run"]) return;
 
 		const job: PkgJob = {
@@ -671,7 +672,7 @@ const commands: Record<string, () => Promise<void> | void> = {
 			state: "queued",
 			step: "queued",
 			progress: 0,
-			warnings: [],
+			warnings: [...result.warnings],
 			stills: [],
 			package: { sourcePath: path, title: pkg.title, visuals: pkg.visuals.length, imagesProvided: result.imagesProvided, imagesToGenerate: result.imagesToGenerate, imagesDone: 0 },
 			musicUrl: pkg.music?.url,
