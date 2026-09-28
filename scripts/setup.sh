@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # video-kit setup for a fresh machine (Linux or WSL on Windows): `bun run setup`. Safe to re-run.
-# Checks system tools, installs JS deps + Chromium, creates .env, installs flowkit (Google Flow agent)
+# Checks system tools, installs JS deps + Chromium, creates .env, installs yt-dlp (reference videos) and flowkit (Google Flow agent)
 # at a pinned, reviewed commit with its own Python venv, and copies its Chrome extension to Windows (WSL).
 set -u
 cd "$(dirname "$0")/.." || exit 1
@@ -21,6 +21,7 @@ echo
 echo "1. Herramientas del sistema"
 command -v bun >/dev/null && ok "bun $(bun --version)" || miss "bun → curl -fsSL https://bun.sh/install | bash"
 command -v git >/dev/null && ok "git" || miss "git → sudo apt-get install -y git"
+command -v curl >/dev/null && ok "curl" || miss "curl → sudo apt-get install -y curl"
 command -v ffmpeg >/dev/null && ok "ffmpeg" || miss "ffmpeg → sudo apt-get install -y ffmpeg"
 command -v python3 >/dev/null && ok "python3 $(python3 -V 2>&1 | cut -d' ' -f2)" || miss "python3 → sudo apt-get install -y python3"
 python3 -c "import ensurepip, venv" >/dev/null 2>&1 && ok "python3-venv" || miss "python3-venv → sudo apt-get install -y python3-venv"
@@ -53,7 +54,19 @@ has PEXELS_API_KEY && ok "PEXELS_API_KEY" || warn "PEXELS_API_KEY vacío (clips 
 has OPENAI_API_KEY && ok "OPENAI_API_KEY" || warn "OPENAI_API_KEY vacío (imágenes con OpenAI; opcional)"
 
 echo
-echo "4. flowkit (Google Flow)"
+echo "4. yt-dlp (videos de referencia: bun vk ref)"
+mkdir -p tools/bin
+if [ -x tools/bin/yt-dlp ] && tools/bin/yt-dlp --version >/dev/null 2>&1; then
+	tools/bin/yt-dlp -U >/dev/null 2>&1 # sites change often: keep it current
+	ok "yt-dlp $(tools/bin/yt-dlp --version)"
+elif curl -fsSL -o tools/bin/yt-dlp https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp && chmod +x tools/bin/yt-dlp; then
+	ok "yt-dlp $(tools/bin/yt-dlp --version) instalado en tools/bin"
+else
+	warn "no pude descargar yt-dlp (bun vk ref no podrá bajar videos; los archivos locales sí funcionan)"
+fi
+
+echo
+echo "5. flowkit (Google Flow)"
 if [ ! -d tools/flowkit/.git ]; then
 	git clone -q "$FLOWKIT_REPO" tools/flowkit && ok "flowkit clonado"
 fi

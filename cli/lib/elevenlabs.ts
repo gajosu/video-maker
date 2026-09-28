@@ -110,3 +110,25 @@ export async function cloneVoice(name: string, filePaths: string[], description?
 	if (!res.ok) throw new Error(`ElevenLabs ${res.status}: ${(await res.text()).slice(0, 500)}`);
 	return (await res.json()).voice_id;
 }
+
+export type SttWord = { text: string; start: number; end: number; type: "word" | "spacing" | "audio_event"; speaker_id?: string };
+export type Transcript = { language_code?: string; text: string; words: SttWord[]; model: string };
+
+/** Speech-to-text (Scribe) with word timestamps, for measuring the cadence of a reference video.
+ * Tries VK_STT_MODEL (default scribe_v2), then scribe_v1. */
+export async function transcribe(file: string): Promise<Transcript> {
+	const models = [...new Set([process.env.VK_STT_MODEL || "scribe_v2", "scribe_v1"])];
+	let last = "";
+	for (const model of models) {
+		const form = new FormData();
+		form.append("model_id", model);
+		form.append("timestamps_granularity", "word");
+		form.append("tag_audio_events", "true");
+		form.append("file", new Blob([readFileSync(file)]), file.split("/").pop() ?? "audio.mp3");
+		const res = await fetch(`${API}/v1/speech-to-text`, { method: "POST", headers: { "xi-api-key": key() }, body: form });
+		if (res.ok) return { ...(await res.json()), model };
+		last = `ElevenLabs ${res.status}: ${(await res.text()).slice(0, 400)}`;
+		if (res.status !== 400 && res.status !== 422) break; // only a bad model id is worth retrying
+	}
+	throw new Error(last);
+}

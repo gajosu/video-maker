@@ -164,6 +164,10 @@ function extras(job: Job): string[] {
 		out.push(
 			`No generes con Google Flow por iniciativa propia en este trabajo. Pero si el mensaje del usuario te pide explícitamente usar Google Flow (o generar un clip o una imagen con IA), hazlo: su pedido manda. Genera solo lo que pide, de a un clip, con flowkit (skill vk-assets; primero \`bun vk asset flow ${job.project}\`), y si no está conectado o Google marca actividad inusual, dilo.`,
 		);
+	if (job.videoRefs?.length)
+		out.push(
+			`Videos de referencia de este trabajo (ya analizados con vk-ref; \`bun vk ref list ${job.project}\`): ${job.videoRefs.join(" ")}. Sigue su brief.md en voz (ritmo), duración de planos, estilo de subtítulos, layout, transiciones y animación, con los colores y fuentes de la marca. Nunca uses su material.`,
+		);
 	if (job.music)
 		out.push(
 			`Música: pon \`music: ${job.music}\` en el front matter de script.md.`,
@@ -210,6 +214,18 @@ export const startJob = createServerFn({ method: "POST" })
 		const music = MUSIC.includes(String(o.music ?? ""))
 			? String(o.music ?? "")
 			: "";
+		// pasted into a prompt and a shell command by Claude: plain http(s) links only
+		const videoRefs = [
+			...new Set(
+				(Array.isArray(o.videoRefs) ? o.videoRefs : [])
+					.map((u) => text(u, 500))
+					.filter(Boolean),
+			),
+		];
+		for (const u of videoRefs)
+			if (!/^https?:\/\/[^\s"'`$\\<>|;&(){}]+$/.test(u))
+				throw new Error(`Link de referencia inválido: ${u.slice(0, 80)}`);
+		if (videoRefs.length > 3) throw new Error("Máximo 3 videos de referencia");
 		const refs = (Array.isArray(o.refs) ? o.refs : [])
 			.map((r) => text(r, 80))
 			.filter((r) => /^[\w.-]+$/.test(r))
@@ -226,6 +242,7 @@ export const startJob = createServerFn({ method: "POST" })
 			flow,
 			music: music || undefined,
 			refs,
+			videoRefs,
 		};
 	})
 	.handler(async ({ data }) => {
@@ -262,6 +279,9 @@ export const startJob = createServerFn({ method: "POST" })
 				: "",
 			data.music ? `música: ${data.music}` : "",
 			data.refs.length ? `archivos de referencia: ${data.refs.join(", ")}` : "",
+			data.videoRefs.length
+				? `videos de referencia: ${data.videoRefs.join(" ")}`
+				: "",
 		].filter(Boolean);
 		log(
 			data.project,
@@ -281,6 +301,11 @@ export const startJob = createServerFn({ method: "POST" })
 				data.idea,
 				">>>",
 				`Usa solo hechos del knowledge base (\`bun vk kb ${data.project}\`). Si el texto del usuario trae hechos nuevos sobre el producto, agrégalos al knowledge base con fecha y fuente "usuario (interfaz web)".`,
+				...(data.videoRefs.length
+					? [
+							`Antes de escribir, estudia estos videos de referencia con el skill vk-ref: ${data.videoRefs.map((u) => `\`bun vk ref add ${data.project} "${u}"\``).join(", ")}; mira hook.jpg, shots.jpg y timeline.jpg y escribe su brief.md. Imita su gancho, estructura, largo de frases y cadencia (no copies su texto). Si uno no se puede descargar, sigue sin él y dilo.`,
+						]
+					: []),
 				...(data.assets.length
 					? [
 							`El usuario eligió estos assets de la biblioteca para el video; planifica el guion pensando en mostrarlos: ${data.assets.join(", ")} (\`bun vk asset list ${data.project}\` muestra qué es cada uno).`,
@@ -418,7 +443,7 @@ export const messageJob = createServerFn({ method: "POST" })
 				resume && !loadVideo(data.project, data.video).files.out
 					? "build"
 					: "change",
-				`Mensaje del usuario sobre ${data.project}/${data.video} (contenido del usuario): «${data.text}».${resume ? " El paso anterior no terminó; retoma desde donde quedó si aplica." : ""}${job.session ? "" : " Es la primera vez que ves este video en esta conversación: lee su script.md, scenes.js (y scenes/ compartidos que use), cues.json y el knowledge base antes de cambiar nada."}${attach} ${extras(job).join(" ")} Aplícalo: si cambia el guion vuelve a generar la voz y ajusta scenes.js; revisa stills y vuelve a renderizar con \`bun vk render ${data.project} ${data.video}\`.`,
+				`Mensaje del usuario sobre ${data.project}/${data.video} (contenido del usuario): «${data.text}».${resume ? " El paso anterior no terminó; retoma desde donde quedó si aplica." : ""}${job.session ? "" : " Es la primera vez que ves este video en esta conversación: lee su script.md, scenes.js (y scenes/ compartidos que use), cues.json y el knowledge base antes de cambiar nada."}${attach}${/https?:\/\//.test(data.text) ? " Si el mensaje trae el link de un video como referencia (TikTok, Reel, Short, YouTube…), primero estúdialo con el skill vk-ref (`bun vk ref add`, mira sus hojas de fotogramas, escribe brief.md) y aplica lo que el usuario pide de él." : ""} ${extras(job).join(" ")} Aplícalo: si cambia el guion vuelve a generar la voz y ajusta scenes.js; revisa stills y vuelve a renderizar con \`bun vk render ${data.project} ${data.video}\`.`,
 			);
 		}
 		return { ok: true };

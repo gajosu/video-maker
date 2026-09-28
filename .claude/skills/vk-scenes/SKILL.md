@@ -7,6 +7,8 @@ description: Design and code the animated scenes (scenes.js) for a video-kit vid
 
 Read `engine/README.md` first: it lists every primitive, the style libraries (`MOTION`, `STORY`, `VOX`),
 asset helpers, the `LINES`/`S`/`SPEC` contract, audio events and layout rules.
+If there is a reference video (skill **vk-ref**), read its `brief.md` and look at its `shots.jpg` / `hook.jpg`: match shot length, layout, caption style and transitions, in the brand's colors and fonts.
+
 Look at the example for the video's style before writing:
 
 | style | example | feel |

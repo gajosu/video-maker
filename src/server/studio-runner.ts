@@ -14,6 +14,7 @@ import { homedir } from "node:os";
 import { basename, join } from "node:path";
 import { loadManifest } from "../../cli/lib/assets.ts";
 import { projectDir, ROOT, videoDir } from "../../cli/lib/paths.ts";
+import { listRefs, loadAnalysis, refsDir } from "../../cli/lib/refs.ts";
 
 export type Phase = "script" | "script-changes" | "build" | "change";
 export type JobStatus = "working" | "review" | "done" | "error" | "cancelled";
@@ -35,6 +36,8 @@ export type Job = {
 	assets?: string[];
 	/** reference files the user uploaded when creating this video (assets/refs/<name>) */
 	refs?: string[];
+	/** links to videos whose voice, pacing and style this one should study (vk-ref), never reuse */
+	videoRefs?: string[];
 	/** Google Flow generation budget (0 = not allowed) */
 	flow?: { clips: number; images: number };
 	/** music preset override ("" = the style's default) */
@@ -154,7 +157,7 @@ const ALLOWED = [
 const SYSTEM = [
 	"Estás trabajando detrás de la interfaz web de video-kit (página «Nuevo video»). El usuario no ve la terminal ni puede responder preguntas a mitad de un paso:",
 	"no uses AskUserQuestion ni esperes confirmación; decide lo razonable y explícalo en tu resumen final.",
-	"Sigue los skills del repo (vk-make, vk-script, vk-scenes, vk-assets, vk-learn) y las reglas de CLAUDE.md y del knowledge base del proyecto.",
+	"Sigue los skills del repo (vk-make, vk-script, vk-scenes, vk-assets, vk-ref, vk-learn) y las reglas de CLAUDE.md y del knowledge base del proyecto.",
 	"Termina cada turno con un resumen breve en español (3-6 líneas) de lo que hiciste y lo que queda.",
 ].join(" ");
 
@@ -175,6 +178,7 @@ function describe(name: string, input: Record<string, unknown>): string {
 // output, so generated / added / found media appears in the chat as pictures and players, not just text.
 type MediaSnap = {
 	assets: Record<string, string>;
+	refs: Record<string, number>;
 	stills: Record<string, number>;
 	out: number;
 };
@@ -192,6 +196,10 @@ function mediaSnap(p: string, v: string): MediaSnap {
 			assets[a.name] =
 				`${a.file}|${mtime(join(projectDir(p), "assets", a.file))}`;
 	} catch {}
+	const refs: Record<string, number> = {};
+	if (existsSync(refsDir(p)))
+		for (const n of readdirSync(refsDir(p)))
+			refs[n] = mtime(join(refsDir(p), n, "analysis.json"));
 	const stills: Record<string, number> = {};
 	const sd = join(videoDir(p, v), "stills");
 	if (existsSync(sd))
@@ -199,6 +207,7 @@ function mediaSnap(p: string, v: string): MediaSnap {
 			if (f.endsWith(".jpg")) stills[f] = mtime(join(sd, f));
 	return {
 		assets,
+		refs,
 		stills,
 		out: mtime(join(videoDir(p, v), "out", `${v}.mp4`)),
 	};
@@ -230,6 +239,33 @@ function mediaDiff(p: string, v: string, before: MediaSnap, after: MediaSnap) {
 					"prompt" in (a.source ?? {})
 						? (a.source as { prompt?: string }).prompt?.slice(0, 200)
 						: undefined,
+				t: Date.now(),
+			}),
+		);
+	}
+	for (const [name, m] of Object.entries(after.refs)) {
+		if (!m || before.refs[name] === m) continue;
+		const meta = listRefs(p).find((r) => r.name === name);
+		const a = loadAnalysis(p, name);
+		if (!meta || !a) continue;
+		log(
+			p,
+			v,
+			"media",
+			JSON.stringify({
+				type: "reference",
+				name,
+				title: meta.title ?? name,
+				url: meta.url,
+				duration: a.video.duration,
+				shots: a.cuts?.shots,
+				avgShot: a.cuts?.avgShot,
+				wpm: a.speech?.wpm,
+				palette: [
+					...(a.palette?.main.slice(0, 4) ?? []),
+					...(a.palette?.accents.slice(0, 2) ?? []),
+				].map((c) => c.hex),
+				images: a.images ? ["hook.jpg", "timeline.jpg"] : [],
 				t: Date.now(),
 			}),
 		);

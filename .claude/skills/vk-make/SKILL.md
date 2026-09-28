@@ -13,6 +13,7 @@ Everything runs from the terminal. The web app (`bun run dev`, http://localhost:
 - `ELEVENLABS_API_KEY` in `.env` and `voice.voiceId` set in project.json (`bun vk voices`). Without a key you can still voice externally and use `bun vk cues <p> <v> --audio file.mp3`.
 
 ## 1. Script
+If the user shared a reference video (or the style is easier to judge against one), study it first with the **vk-ref** skill and follow its brief in every step below.
 `bun vk new <p> <slug> --title "..."`, then follow the **vk-script** skill. Show the user the lines and wait for an OK before spending TTS credits.
 
 ## 2. Voice

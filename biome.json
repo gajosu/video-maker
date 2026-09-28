@@ -12,6 +12,7 @@
 			"**/.vscode/**/*",
 			"**/index.html",
 			"**/vite.config.ts",
+			"!**/tools",
 			"!**/src/routeTree.gen.ts",
 			"!**/src/styles.css"
 		]
@@ -33,4 +34,3 @@
 		}
 	}
 }
-

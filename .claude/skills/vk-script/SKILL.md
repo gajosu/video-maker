@@ -9,6 +9,8 @@ description: Write or rewrite the voiceover script for a punchy vertical video (
 `bun vk kb <project>`: all of it, especially `rules.md` and `learnings.md`. Only use facts found there;
 if the idea needs a fact that is missing, ask or run the vk-learn skill first.
 
+If there is a reference video (`bun vk ref list <p>`, skill **vk-ref**), match its hook shape, phrase length and arc from its `brief.md` / `report.md`, in your own words.
+
 ## Pick a style first (`style:` in front-matter; `bun vk styles`)
 | style | when | voice & pacing |
 |---|---|---|

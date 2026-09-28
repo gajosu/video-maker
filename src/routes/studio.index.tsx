@@ -53,6 +53,7 @@ function Studio() {
 	const [music, setMusic] = useState("");
 	const [picked, setPicked] = useState<string[]>([]);
 	const [refs, setRefs] = useState<string[]>([]);
+	const [videoRefs, setVideoRefs] = useState("");
 	const [uploading, setUploading] = useState(false);
 	const fileInput = useRef<HTMLInputElement>(null);
 	const [flowOn, setFlowOn] = useState(false);
@@ -121,6 +122,7 @@ function Studio() {
 					music,
 					assets: picked,
 					refs,
+					videoRefs: videoRefs.split(/\s+/).filter(Boolean),
 					flow: flowOn ? { clips, images } : { clips: 0, images: 0 },
 				},
 			});
@@ -388,6 +390,27 @@ function Studio() {
 							/>
 						</div>
 					</div>
+
+					<label className="grid gap-1.5 text-sm">
+						<span className="font-medium">
+							Videos de referencia{" "}
+							<span className="font-normal text-muted-foreground">
+								(links de TikTok, Reels, Shorts, YouTube… uno por línea, máx. 3
+								— opcional)
+							</span>
+						</span>
+						<textarea
+							value={videoRefs}
+							onChange={(e) => setVideoRefs(e.target.value)}
+							rows={2}
+							placeholder="https://www.tiktok.com/@marca/video/…"
+							className={cn(field, "font-mono text-xs")}
+						/>
+						<span className="text-xs text-muted-foreground">
+							Claude los descarga y estudia la voz, el ritmo, los cortes y el
+							estilo gráfico para imitarlos. Nunca usa su material en tu video.
+						</span>
+					</label>
 
 					<div className="grid gap-3 rounded-lg border bg-background/40 p-4 text-sm">
 						<div className="flex flex-wrap items-center justify-between gap-2">

@@ -28,6 +28,7 @@ import { assertSlug, PROJECTS_DIR, projectDir, ROOT, videoDir } from "./lib/path
 import { loadPackage, slugifyVideo } from "./lib/pkg.ts";
 import { type Cues, listProjects, listVideos, loadProject, loadVideo, readKnowledge } from "./lib/project.ts";
 import { exportEvents, openVideo, renderFrames, renderStills } from "./lib/render.ts";
+import { addRef, analyzeRef, listRefs, loadAnalysis, loadRef, refDir, removeRef } from "./lib/refs.ts";
 import { renderSonicPi } from "./lib/sonicpi.ts";
 import { tighten } from "./lib/tighten.ts";
 
@@ -48,6 +49,7 @@ const HELP = `video-kit — punchy vertical videos from a script
   bun vk check <project> <video>        validate script / LINES / SPEC / cues / assets
   bun vk styles                         list video styles (script.md "style:")
   bun vk asset <sub> …                  images, video, sfx, music (bun vk asset help)
+  bun vk ref <sub> …                    reference videos to study: voice cadence, cuts, style (bun vk ref help)
   bun vk music <project> <video>        Sonic Pi music: create music.rb, or render it (script.md "music: sonicpi")
   bun vk mix <project> <video>          re-mix audio only (build/audio.wav, heard in the preview)
   bun vk stills <project> <video> [t ...] [--dark|--light]  JPG previews -> stills/
@@ -72,7 +74,7 @@ for (let i = 0; i < argv.length; i++) {
 	if (a.startsWith("--")) {
 		const [k, v] = a.slice(2).split("=");
 		if (v !== undefined) flags[k] = v;
-		else if (argv[i + 1] && !argv[i + 1].startsWith("--") && !["dark", "light"].includes(k)) flags[k] = argv[++i];
+		else if (argv[i + 1] && !argv[i + 1].startsWith("--") && !["dark", "light"].includes(k) && !k.startsWith("no-")) flags[k] = argv[++i];
 		else flags[k] = true;
 	} else pos.push(a);
 }
@@ -105,6 +107,17 @@ const ASSET_HELP = `bun vk asset <sub>
   requests <p>                                     open requests
   pull <p>                                         re-download url/stock assets missing locally
   credits <p> [video]                              attribution lines for licensed assets
+  rm <p> <name>`;
+
+const REF_HELP = `bun vk ref <sub>   reference videos (projects/<p>/references/<name>/): study them, never ship them
+
+  add <p> <url|video|audio file> [--name n] [--via yt-dlp|cobalt] [--max-seconds 900] [--no-analyze] [--no-transcribe]
+                            download (TikTok, Reels, Shorts, YouTube, X… via yt-dlp; cobalt if COBALT_API_URL is set) and analyze
+  analyze <p> <name> [--no-transcribe]
+                            cuts/dissolves, shot lengths, palette, loudness, transcript + words/min, pauses, phrases;
+                            writes report.md, analysis.json, hook.jpg (first 3 s at 4 fps), shots.jpg, timeline.jpg
+  show <p> <name>           print report.md (read the .jpg sheets next to it)
+  list <p>
   rm <p> <name>`;
 
 /** a Sonic Pi music file: `sonicpi` = videos/<v>/music.rb; `x.rb` = the video's x.rb, else projects/<p>/music/x.rb */
@@ -620,6 +633,59 @@ const commands: Record<string, () => Promise<void> | void> = {
 		console.log(out);
 	},
 
+	async ref() {
+		const [sub, p, ...rest] = args;
+		if (!sub || sub === "help" || !p) return console.log(REF_HELP);
+		assertSlug(p, "project");
+		loadProject(p);
+		const analyzeOpts = { transcribe: !flags["no-transcribe"] };
+		const show = (name: string) => {
+			const dir = refDir(p, name);
+			console.log(readFileSync(join(dir, "report.md"), "utf8"));
+			console.log(`files: ${dir}/{report.md,hook.jpg,shots.jpg,timeline.jpg}`);
+		};
+		switch (sub) {
+			case "add": {
+				if (!rest[0]) throw new Error("usage: bun vk ref add <project> <url|file> [--name n]");
+				const via = str("via") as "yt-dlp" | "cobalt" | undefined;
+				const m = await addRef(p, rest[0], { name: str("name"), via, maxSeconds: str("max-seconds") ? Number(str("max-seconds")) : undefined });
+				console.log(`${m.via === "file" ? "copied" : `downloaded via ${m.via}:`} "${m.title ?? m.name}" → references/${m.name}/${m.file}`);
+				if (flags["no-analyze"]) return;
+				console.log("analyzing (cuts, frames, palette, audio, transcript)…");
+				await analyzeRef(p, m.name, analyzeOpts);
+				return show(m.name);
+			}
+			case "analyze": {
+				if (!rest[0]) throw new Error("usage: bun vk ref analyze <project> <name>");
+				await analyzeRef(p, rest[0], analyzeOpts);
+				return show(rest[0]);
+			}
+			case "show": {
+				if (!rest[0]) throw new Error("usage: bun vk ref show <project> <name>");
+				if (!loadRef(p, rest[0])) throw new Error(`no reference "${rest[0]}"`);
+				if (!loadAnalysis(p, rest[0])) throw new Error(`not analyzed yet (bun vk ref analyze ${p} ${rest[0]})`);
+				return show(rest[0]);
+			}
+			case "list": {
+				const refs = listRefs(p);
+				for (const m of refs) {
+					const a = loadAnalysis(p, m.name);
+					const stats = a ? `${a.video.duration}s${a.cuts ? `, ${a.cuts.shots} shots` : ", audio"}${a.speech ? `, ${a.speech.wpm} wpm` : ""}` : "not analyzed";
+					console.log(`${m.name.padEnd(28)} ${stats.padEnd(28)} ${m.title ?? ""}  ${m.url ?? ""}`);
+				}
+				if (!refs.length) console.log(`no references yet (bun vk ref add ${p} <url>)`);
+				return;
+			}
+			case "rm": {
+				if (!rest[0]) throw new Error("usage: bun vk ref rm <project> <name>");
+				removeRef(p, rest[0]);
+				return console.log(`removed ${rest[0]}`);
+			}
+			default:
+				throw new Error(`unknown ref command "${sub}"\n\n${REF_HELP}`);
+		}
+	},
+
 	async package() {
 		const [sub, ...rest] = args;
 		if (sub === "status" || sub === "resume" || sub === "worker") {
@@ -694,7 +760,7 @@ if (!fn) {
 	process.exit(1);
 }
 try {
-	if (args[0] && !["voices", "help", "asset", "styles", "package"].includes(cmd)) assertSlug(args[0], "project");
+	if (args[0] && !["voices", "help", "asset", "ref", "styles", "package"].includes(cmd)) assertSlug(args[0], "project");
 	await fn();
 } catch (e) {
 	console.error(`✗ ${(e as Error).message}`);

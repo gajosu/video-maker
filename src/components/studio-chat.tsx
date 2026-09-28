@@ -1,6 +1,7 @@
 import { useRouter } from "@tanstack/react-router";
 import {
 	Bot,
+	Clapperboard,
 	Film,
 	ImageIcon,
 	Loader2,
@@ -33,6 +34,19 @@ type Media =
 	  }
 	| { type: "stills"; files: string[]; t: number }
 	| { type: "render"; file: string; t: number }
+	| {
+			type: "reference";
+			name: string;
+			title: string;
+			url?: string;
+			duration: number;
+			shots?: number;
+			avgShot?: number;
+			wpm?: number;
+			palette: string[];
+			images: string[];
+			t: number;
+	  }
 	| {
 			type: "search";
 			items: { n: number; title: string; thumb: string; source: string }[];
@@ -145,6 +159,70 @@ function MediaEvent({
 						);
 					})}
 				</div>
+			</div>
+		);
+	if (m.type === "reference")
+		return (
+			<div className="max-w-[340px] rounded-lg border bg-background/60 p-2">
+				<div className="mb-1 flex items-center gap-1.5 text-xs text-muted-foreground">
+					<Clapperboard className="size-3" aria-hidden /> Video de referencia
+					analizado
+				</div>
+				<div className="line-clamp-2 text-xs font-medium text-foreground">
+					{m.url ? (
+						<a
+							href={m.url}
+							target="_blank"
+							rel="noreferrer"
+							className="hover:underline"
+						>
+							{m.title}
+						</a>
+					) : (
+						m.title
+					)}
+				</div>
+				<div className="mt-1 text-xs text-muted-foreground">
+					{[
+						`${Math.round(m.duration)} s`,
+						m.shots !== undefined && `${m.shots} planos (~${m.avgShot} s c/u)`,
+						m.wpm !== undefined && `${m.wpm} palabras/min`,
+					]
+						.filter(Boolean)
+						.join(" · ")}
+				</div>
+				{m.palette.length > 0 && (
+					<div className="mt-1.5 flex gap-1">
+						{m.palette.map((c) => (
+							<span
+								key={c}
+								title={c}
+								className="size-4 rounded-sm border border-white/20"
+								style={{ background: c }}
+							/>
+						))}
+					</div>
+				)}
+				{m.images.length > 0 && (
+					<div className="mt-2 grid gap-1.5">
+						{m.images.map((f) => {
+							const src = fileUrl(project, `references/${m.name}/${f}`, m.t);
+							return (
+								<button
+									key={f}
+									type="button"
+									onClick={() => onZoom(src)}
+									className="overflow-hidden rounded"
+									title={
+										f === "hook.jpg" ? "Primeros 3 s, 4 fps" : "Todo el video"
+									}
+								>
+									<img src={src} alt="" className="w-full" />
+								</button>
+							);
+						})}
+					</div>
+				)}
 			</div>
 		);
 	if (m.type === "render")

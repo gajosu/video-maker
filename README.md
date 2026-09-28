@@ -94,6 +94,7 @@ bun vk render mybrand launch              # → projects/mybrand/videos/launch/o
 | `bun vk check <project> <video>` | validate script ↔ scenes ↔ cues, missing/requested assets |
 | `bun vk styles` | list video styles |
 | `bun vk asset <sub> …` | asset library: `list add search pick gen html request requests pull credits rm` (`bun vk asset help`) |
+| `bun vk ref <sub> …` | reference videos: `add` (link or file, via yt-dlp/cobalt) `analyze show list rm` (`bun vk ref help`) |
 | `bun vk music <project> <video>` | Sonic Pi music: create `music.rb`, or render it to `build/music-sonicpi.wav` (`music: sonicpi`) |
 | `bun vk mix <project> <video>` | audio only (music + SFX + voice) → `build/audio.wav`, playable in the preview |
 | `bun vk stills <project> <video> [t…] [--dark\|--light]` | preview frames |
@@ -131,6 +132,18 @@ Requested assets appear in the preview's **Assets** tab with a drop zone. Upload
 
 Sound: the style's music preset (or `music: <preset|music asset|sonicpi>` in script.md; Sonic Pi code can time drops and breaks to the video's marks and SFX events), plus SFX events from the scenes. A sound-effect asset whose name matches an event (`camera`, `pop`, `whoosh`…) is used in place of, or in addition to, the built-in synth sounds.
 
+## Reference videos
+
+Give Claude a TikTok, Reel, Short or YouTube link to match its voice pace, cut rhythm, hook and graphic style (the `vk-ref` skill, or the "Videos de referencia" field in **Nuevo video**):
+
+```bash
+bun vk ref add mybrand "https://www.tiktok.com/@someone/video/…"   # download (yt-dlp, cobalt fallback) + analyze
+bun vk ref show mybrand <name>                                      # report.md: cuts, shot length, palette, loudness, words/min, pauses, phrases
+bun vk ref add mybrand projects/mybrand/videos/launch/out/launch.mp4 --no-transcribe   # measure your own render to compare
+```
+
+Each reference lands in `projects/<p>/references/<name>/` with `hook.jpg` (first 3 s at 4 fps), `shots.jpg` (one frame per shot) and `timeline.jpg` (24 frames), plus the transcript (ElevenLabs Scribe, billed per minute; `--no-transcribe` skips it). References are study material only: their footage, audio and script never go into a video. Posts that need a login: `VK_YTDLP_ARGS="--cookies cookies.txt"`. Cobalt: set `COBALT_API_URL` (+ `COBALT_API_KEY`) to your instance.
+
 ## Project layout
 
 ```
@@ -138,6 +151,7 @@ projects/<slug>/
   project.json        brand colors + fonts, ElevenLabs voice, UI strings, format (fps, theme, LUFS, bpm)
   knowledge/*.md      brand, audience, offers, rules, voice, learnings: what scripts are written from
   scenes/*.js         scene code shared by several videos (script.md `uses: [name]`)
+  references/<name>/  downloaded reference videos + analysis (bun vk ref), never rendered
   assets/             manifest.json + images/ video/ frames/ sfx/ music/ html/ (use by name: asset('logo'))
   videos/<video>/
     script.md         front-matter + notes + "## Lines" (one spoken line each, {#mark} keyword marks)
@@ -156,6 +170,7 @@ Only `projects/_example` is tracked by git (its asset binaries are not: `bun vk 
 | `vk-learn` | add facts, docs or post-mortems to a project's knowledge base |
 | `vk-script` | write hook-first scripts grounded in the knowledge base |
 | `vk-assets` | shot list → stock, generated, HTML-rendered or user-requested assets and sounds |
+| `vk-ref` | download and study a reference video (cadence, cuts, hook, graphic style) and write a brief |
 | `vk-scenes` | code the animated scenes in the video's style and review them with rendered stills |
 | `vk-make` | the whole pipeline, idea → MP4 |
 

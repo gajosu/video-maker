@@ -43,3 +43,5 @@ test-results/
 
 # flowkit (Google Flow agent), installed by `bun run setup`: third-party code, its venv and session data stay local
 tools/flowkit/
+# yt-dlp binary (reference videos), downloaded by `bun run setup`
+tools/bin/
