@@ -3,13 +3,13 @@
 // studio job when a video is open, or the project's job (project-setup.ts) otherwise —
 // same "one Claude process at a time" jobs the dedicated pages already use, just reachable
 // from anywhere instead of only from their own page.
-import { useRouterState } from "@tanstack/react-router";
+import { useNavigate, useRouterState } from "@tanstack/react-router";
 import { Loader2, MessageCircle, Square, X } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Activity } from "#/components/studio-chat";
 import { cn } from "#/lib/utils";
 import { cancelSetupJob, getSetup, messageSetup } from "#/server/project-setup";
-import { cancelJob, getChat, messageJob } from "#/server/studio";
+import { cancelJob, getChat, getRunningJob, messageJob } from "#/server/studio";
 import { getProjects } from "#/server/vk";
 
 type ChatData = {
@@ -26,12 +26,23 @@ export function GlobalChat() {
 			return { project: p?.project, video: p?.video };
 		},
 	});
+	const navigate = useNavigate();
 	const [open, setOpen] = useState(false);
 	const [projects, setProjects] = useState<{ slug: string; name: string }[]>(
 		[],
 	);
 	const [stickyProject, setStickyProject] = useState("");
 	const [d, setD] = useState<ChatData | null>(null);
+	// tracked regardless of whether the panel is open or which page we're on, so a job started from
+	// "Nuevo video" (or the setup chat) still gets noticed even if the user closes the widget or navigates away
+	const [globalWorking, setGlobalWorking] = useState(false);
+	const [toast, setToast] = useState<{
+		project: string;
+		video: string;
+		ok: boolean;
+	} | null>(null);
+	const watchedRef = useRef<{ project: string; video: string } | null>(null);
+	const WATCH_KEY = "vk-watched-job";
 
 	// once you've visited a project, the widget keeps talking about it even from other pages
 	useEffect(() => {
@@ -64,11 +75,116 @@ export function GlobalChat() {
 		return () => clearInterval(id);
 	}, [open, d?.status, load]);
 
+	// background watcher: runs at all times (panel closed, any page), so "te aviso cuando esté listo"
+	// is actually true instead of silently going quiet once you close the chat or navigate away
+	useEffect(() => {
+		let cancelled = false;
+		const tick = async () => {
+			try {
+				if (!watchedRef.current) {
+					try {
+						const raw = localStorage.getItem(WATCH_KEY);
+						if (raw) watchedRef.current = JSON.parse(raw);
+					} catch {}
+				}
+				if (!watchedRef.current) {
+					const r = await getRunningJob();
+					if (!cancelled) setGlobalWorking(!!r);
+					if (!r) return;
+					watchedRef.current = { project: r.project, video: r.video };
+					try {
+						localStorage.setItem(WATCH_KEY, JSON.stringify(watchedRef.current));
+					} catch {}
+					return;
+				}
+				const { project: wp, video: wv } = watchedRef.current;
+				const s = wv
+					? await getChat({ data: { project: wp, video: wv } })
+					: await getSetup({ data: { project: wp } });
+				if (cancelled) return;
+				if (s.status === "working") {
+					setGlobalWorking(true);
+					return;
+				}
+				watchedRef.current = null;
+				try {
+					localStorage.removeItem(WATCH_KEY);
+				} catch {}
+				setGlobalWorking(false);
+				if (s.status)
+					setToast({ project: wp, video: wv, ok: s.status !== "error" });
+				if (
+					open &&
+					wp === (routeParams.project || stickyProject) &&
+					wv === video
+				)
+					load();
+			} catch {}
+		};
+		tick();
+		const id = setInterval(tick, 4000);
+		return () => {
+			cancelled = true;
+			clearInterval(id);
+		};
+	}, [open, video, routeParams.project, stickyProject, load]);
+
+	useEffect(() => {
+		if (!toast) return;
+		const id = setTimeout(() => setToast(null), 12000);
+		return () => clearTimeout(id);
+	}, [toast]);
+
 	const projectName = projects.find((p) => p.slug === project)?.name ?? project;
 	const working = d?.status === "working";
 
 	return (
-		<div className="fixed bottom-5 left-5 z-40">
+		<div className="fixed bottom-5 left-5 z-40 flex flex-col items-start gap-2">
+			{toast && (
+				<div
+					className={cn(
+						"flex w-72 items-start gap-2 rounded-lg border p-3 text-xs shadow-xl",
+						toast.ok
+							? "border-accent/40 bg-accent/10 text-accent"
+							: "border-red-400/40 bg-red-400/10 text-red-200",
+					)}
+				>
+					<div className="min-w-0 flex-1">
+						<div className="font-semibold">
+							{toast.ok ? "Listo" : "Hubo un error"}
+						</div>
+						<div className="truncate text-muted-foreground">
+							{toast.project}
+							{toast.video ? ` · ${toast.video}` : " · configuración"}
+						</div>
+					</div>
+					<button
+						type="button"
+						onClick={() => {
+							setStickyProject(toast.project);
+							setOpen(true);
+							navigate({
+								to: toast.video ? "/p/$project/v/$video" : "/p/$project/setup",
+								params: toast.video
+									? { project: toast.project, video: toast.video }
+									: { project: toast.project },
+							});
+							setToast(null);
+						}}
+						className="shrink-0 font-medium underline-offset-2 hover:underline"
+					>
+						Ver
+					</button>
+					<button
+						type="button"
+						onClick={() => setToast(null)}
+						className="shrink-0 text-muted-foreground hover:text-foreground"
+						aria-label="Cerrar aviso"
+					>
+						<X className="size-3.5" aria-hidden />
+					</button>
+				</div>
+			)}
 			{open ? (
 				<div className="flex h-[min(600px,80dvh)] w-[380px] max-w-[calc(100vw-2.5rem)] flex-col overflow-hidden rounded-xl border bg-card shadow-2xl">
 					<div className="flex items-center justify-between gap-2 border-b px-3 py-2.5">
@@ -163,7 +279,7 @@ export function GlobalChat() {
 					)}
 					aria-label="Abrir chat"
 				>
-					{working ? (
+					{working || globalWorking ? (
 						<Loader2 className="size-6 animate-spin" aria-hidden />
 					) : (
 						<MessageCircle className="size-6" aria-hidden />

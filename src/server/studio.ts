@@ -480,6 +480,19 @@ export const getPkgChat = createServerFn({ method: "GET" })
 		};
 	});
 
+/** cheap system-wide poll for the GlobalChat widget: is *anything* (a video job or a project-setup
+ *  chat, anywhere) still working, so it can keep tracking and notify even off that job's own page. */
+export const getRunningJob = createServerFn({ method: "GET" }).handler(
+	async () => {
+		const j = anyRunning(projectSlugs()) as
+			| (Job & { video?: string })
+			| undefined;
+		if (!j) return null;
+		const setup = !j.video || j.video === "__setup__";
+		return { project: j.project, video: setup ? "" : j.video };
+	},
+);
+
 export const cancelJob = createServerFn({ method: "POST" })
 	.validator(ids)
 	.handler(async ({ data }) => {
