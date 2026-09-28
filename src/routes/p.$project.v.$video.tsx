@@ -28,6 +28,9 @@ export const Route = createFileRoute("/p/$project/v/$video")({
 
 type PageWindow = Window & {
 	render?: (t: number) => void;
+	/** frame-snapped, double-buffered render for the player (engine/timeline.js) */
+	renderLive?: (t: number) => void;
+	warmFrom?: (t: number) => void;
 	scenes?: () => { name: string; start: number; end: number }[];
 	VK_READY?: boolean;
 	VK_ERRORS?: string[];
@@ -78,7 +81,8 @@ function VideoPage() {
 	const draw = useCallback((time: number) => {
 		const w = iframeRef.current?.contentWindow as PageWindow | null;
 		try {
-			w?.render?.(time);
+			if (w?.renderLive) w.renderLive(time);
+			else w?.render?.(time);
 		} catch (e) {
 			setErrors([String((e as Error).message)]);
 		}
@@ -91,6 +95,7 @@ function VideoPage() {
 			clock.current = { at: performance.now(), from: x };
 			if (audioRef.current && audioSrc) audioRef.current.currentTime = x;
 			setT(x);
+			(iframeRef.current?.contentWindow as PageWindow | null)?.warmFrom?.(x);
 			draw(x);
 		},
 		[dur, audioSrc, draw],
@@ -168,7 +173,10 @@ function VideoPage() {
 		);
 		setScenes(w.scenes?.() ?? []);
 		if (w.DUR) setDur(w.DUR);
-		w.document.fonts.ready.then(() => draw(tRef.current));
+		w.document.fonts.ready.then(() => {
+			w.warmFrom?.(tRef.current);
+			draw(tRef.current);
+		});
 	};
 
 	// the iframe can finish loading before hydration attaches onLoad

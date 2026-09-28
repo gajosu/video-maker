@@ -33,8 +33,9 @@ const field =
 	"w-full rounded-lg border bg-card px-3 py-2 text-sm outline-none focus:border-white/40";
 
 function Studio() {
-	const { projects, jobs, running, assets, projectVoices, voices } =
+	const { projects, jobs, running, maxJobs, assets, projectVoices, voices } =
 		Route.useLoaderData();
+	const full = running >= maxJobs;
 	const navigate = useNavigate();
 	const [project, setProject] = useState(
 		projects.find((p) => p.slug !== "_example")?.slug ??
@@ -57,6 +58,7 @@ function Studio() {
 	const [uploading, setUploading] = useState(false);
 	const fileInput = useRef<HTMLInputElement>(null);
 	const [flowOn, setFlowOn] = useState(false);
+	const flowTouched = useRef(false);
 	const [clips, setClips] = useState(2);
 	const [images, setImages] = useState(0);
 	const [flow, setFlow] = useState<Awaited<
@@ -401,14 +403,27 @@ function Studio() {
 						</span>
 						<textarea
 							value={videoRefs}
-							onChange={(e) => setVideoRefs(e.target.value)}
+							onChange={(e) => {
+								setVideoRefs(e.target.value);
+								// recreating a reference needs look-alike people and places: turn Flow on with a budget
+								if (
+									!flowTouched.current &&
+									/https?:\/\//.test(e.target.value)
+								) {
+									setFlowOn(true);
+									setClips((c) => Math.max(c, 4));
+									setImages((n) => Math.max(n, 4));
+								}
+							}}
 							rows={2}
 							placeholder="https://www.tiktok.com/@marca/video/…"
 							className={cn(field, "font-mono text-xs")}
 						/>
 						<span className="text-xs text-muted-foreground">
-							Claude los descarga y estudia la voz, el ritmo, los cortes y el
-							estilo gráfico para imitarlos. Nunca usa su material en tu video.
+							Claude los descarga, los estudia plano por plano y hace tu video
+							lo más parecido posible: formato, personas y lugares parecidos
+							(con Google Flow), voz, ritmo, subtítulos y estilo. Nunca usa su
+							material ni la persona real.
 						</span>
 					</label>
 
@@ -418,7 +433,10 @@ function Studio() {
 								<input
 									type="checkbox"
 									checked={flowOn}
-									onChange={(e) => setFlowOn(e.target.checked)}
+									onChange={(e) => {
+										flowTouched.current = true;
+										setFlowOn(e.target.checked);
+									}}
 									className="size-4 accent-[var(--accent)]"
 								/>
 								Generar clips e imágenes nuevas con Google Flow
@@ -485,15 +503,22 @@ function Studio() {
 					</div>
 
 					{error && <p className="text-sm text-red-400">{error}</p>}
-					{running && (
-						<p className="text-sm text-amber-200">
-							Hay un video en proceso; espera a que termine para crear otro.
+					{running > 0 && (
+						<p
+							className={cn(
+								"text-sm",
+								full ? "text-amber-200" : "text-muted-foreground",
+							)}
+						>
+							{full
+								? `Ya hay ${running} videos en proceso, el máximo a la vez. Espera a que termine uno.`
+								: `${running} video${running > 1 ? "s" : ""} en proceso; este se hará en paralelo (máx. ${maxJobs}).`}
 						</p>
 					)}
 					<div className="flex justify-end">
 						<button
 							type="submit"
-							disabled={sending || running || !project}
+							disabled={sending || full || !project}
 							className="inline-flex items-center gap-2 rounded-lg bg-accent px-5 py-2.5 text-sm font-semibold text-accent-foreground disabled:opacity-50"
 						>
 							{sending ? (

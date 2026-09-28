@@ -9,6 +9,8 @@ import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "no
 import { extname, join } from "node:path";
 import { chromium } from "playwright";
 import { type Asset, addFile, assetFile, assetsDir } from "./assets.ts";
+import { withLock } from "./lock.ts";
+import { PROJECTS_DIR } from "./paths.ts";
 
 export const FLOW_DURATIONS = [4, 6, 8, 10];
 export const FLOW_IMAGE_MODELS: Record<string, string> = { pro: "GEM_PIX_2", nb2: "NARWHAL", lite: "HARBOR_SEAL" };
@@ -19,6 +21,13 @@ const IMAGE_ASPECTS: Record<string, string> = { portrait: "9:16", landscape: "16
 const base = () => (process.env.FLOWKIT_URL || "http://127.0.0.1:8100").replace(/\/+$/, "");
 const SETUP = 'Start flowkit (bun run flowkit), load its "Flow Kit" extension in Chrome and keep https://flow.google.com open and signed in.';
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/** one Flow generation at a time across every CLI process and headless Claude session (videos build in parallel) */
+const oneAtATime = <A extends unknown[], R>(what: string, fn: (...a: A) => Promise<R>) =>
+	(...a: A): Promise<R> =>
+		withLock(join(PROJECTS_DIR, ".flow.lock"), () => fn(...a), {
+			onWait: () => console.log(`  waiting for Google Flow: another video is generating (${what} queued)…`),
+		});
 
 async function call(path: string, body?: unknown, raw = false) {
 	let res: Response;
@@ -164,7 +173,7 @@ async function pollVideo(name: string, sub: Record<string, any>): Promise<{ url:
 }
 
 /** text / start(+end) frame / references → video; downloads the clip and adds it as a video asset */
-export async function genFlowVideo(p: string, name: string, prompt: string, o: FlowVideoOpts = {}) {
+async function genFlowVideoNow(p: string, name: string, prompt: string, o: FlowVideoOpts = {}) {
 	const duration = o.duration ?? 8;
 	if (!FLOW_DURATIONS.includes(duration)) throw new Error(`--duration must be one of ${FLOW_DURATIONS.join(", ")} seconds`);
 	const aspect_ratio = o.shape === "landscape" ? "VIDEO_ASPECT_RATIO_LANDSCAPE" : "VIDEO_ASPECT_RATIO_PORTRAIT";
@@ -235,7 +244,7 @@ async function saveImages(p: string, name: string, data: Record<string, any>, pr
 }
 
 /** text (+ optional reference images) → 1–4 images with Nano Banana Pro / 2 / 2 Lite */
-export async function genFlowImage(p: string, name: string, prompt: string, o: FlowImageOpts = {}) {
+async function genFlowImageNow(p: string, name: string, prompt: string, o: FlowImageOpts = {}) {
 	const project_id = await flowProject();
 	const reference_media_ids = [];
 	for (const r of refList(o.refs)) reference_media_ids.push(await flowMedia(p, r));
@@ -245,7 +254,7 @@ export async function genFlowImage(p: string, name: string, prompt: string, o: F
 }
 
 /** edit an existing image (asset or file) with a prompt; the source is sent as Flow's BASE_IMAGE */
-export async function editFlowImage(p: string, name: string, source: string, prompt: string, o: FlowImageOpts = {}) {
+async function editFlowImageNow(p: string, name: string, source: string, prompt: string, o: FlowImageOpts = {}) {
 	const project_id = await flowProject();
 	const source_media_id = await flowMedia(p, source);
 	const reference_media_ids = [];
@@ -255,7 +264,7 @@ export async function editFlowImage(p: string, name: string, source: string, pro
 }
 
 /** export (upsample) an image to 2K or 4K (4K is plan-gated) */
-export async function upscaleFlowImage(p: string, name: string, source: string, quality: "2k" | "4k" = "2k") {
+async function upscaleFlowImageNow(p: string, name: string, source: string, quality: "2k" | "4k" = "2k") {
 	const project_id = await flowProject();
 	const media_id = await flowMedia(p, source);
 	const res = (await call("/export-image", { media_id, project_id, quality }, true)) as Response;
@@ -263,3 +272,8 @@ export async function upscaleFlowImage(p: string, name: string, source: string, 
 	writeFileSync(f, Buffer.from(await res.arrayBuffer()));
 	return addFile(p, f, { name, kind: "image", source: { type: "google-flow", prompt: `${quality} export of ${source}`, model: `flow-export ${quality}` }, license: "own", credit: "exported with Google Flow" });
 }
+
+export const genFlowVideo = oneAtATime("video", genFlowVideoNow);
+export const genFlowImage = oneAtATime("image", genFlowImageNow);
+export const editFlowImage = oneAtATime("edit", editFlowImageNow);
+export const upscaleFlowImage = oneAtATime("upscale", upscaleFlowImageNow);

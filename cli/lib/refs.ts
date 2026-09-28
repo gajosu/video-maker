@@ -446,6 +446,18 @@ export async function analyzeRef(p: string, name: string, o: { transcribe?: bool
 	return analysis;
 }
 
+/** one row per shot: time range, length and the frame that shows it */
+function shotRows(a: Analysis): string[] {
+	if (!a.cuts) return [];
+	const b = [0, ...a.cuts.times, a.video.duration];
+	const frames = a.images?.frames ?? [];
+	return b.slice(1).map((end, i) => {
+		const start = b[i];
+		const f = frames.find((x) => x.t >= start && x.t <= end);
+		return `- ${i + 1}. ${start.toFixed(2)}–${end.toFixed(2)} (${(end - start).toFixed(1)} s)${f ? ` ${f.file}` : ""}`;
+	});
+}
+
 const pct = (c: Swatch) => `${c.hex} ${c.share < 0.01 ? "<1" : Math.round(c.share * 100)}%`;
 
 export function report(m: RefMeta, a: Analysis): string {
@@ -470,6 +482,9 @@ export function report(m: RefMeta, a: Analysis): string {
 			`- ${c.shots} shots, average ${c.avgShot} s (shortest ${c.minShot} s, longest ${c.maxShot} s), ${c.inFirst3s} cut(s) in the first 3 s`,
 			`- changes at: ${c.times.map((t) => (c.fades.includes(t) ? `${t}~` : String(t))).join(", ") || "none detected (one continuous shot or animated graphics; look at timeline.jpg)"}`,
 			"  (~ = dissolve or a big camera/graphic move; plain = hard cut)",
+			"",
+			"### Shots (recreate them one by one)",
+			...shotRows(a),
 		);
 	if (a.palette)
 		rows.push(

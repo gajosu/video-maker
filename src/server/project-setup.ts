@@ -15,6 +15,7 @@ import { join } from "node:path";
 import { createServerFn } from "@tanstack/react-start";
 import { projectDir, ROOT } from "../../cli/lib/paths.ts";
 import { listProjects, loadProject } from "../../cli/lib/project.ts";
+import { CLAUDE_MODEL } from "./studio-runner.ts";
 
 export type SetupStatus = "working" | "done" | "error" | "cancelled";
 export type SetupJob = {
@@ -135,6 +136,8 @@ function run(job: SetupJob, prompt: string) {
 	const args = [
 		"-p",
 		prompt,
+		"--model",
+		CLAUDE_MODEL,
 		"--output-format",
 		"stream-json",
 		"--verbose",

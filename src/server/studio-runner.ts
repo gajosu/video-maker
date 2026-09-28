@@ -7,6 +7,8 @@ import {
 	mkdirSync,
 	readdirSync,
 	readFileSync,
+	renameSync,
+	rmSync,
 	statSync,
 	writeFileSync,
 } from "node:fs";
@@ -50,8 +52,10 @@ export type Job = {
 };
 export type LogEvent = {
 	t: number;
-	k: "you" | "say" | "tool" | "done" | "error" | "media";
+	k: "you" | "say" | "tool" | "done" | "error" | "media" | "seen";
 	x: string;
+	/** "you": id of a message queued while the job was working; "seen": that id, once Claude got it */
+	mid?: string;
 };
 
 const jobDir = (p: string, v: string) => join(projectDir(p), "jobs", v);
@@ -74,10 +78,82 @@ export function saveJob(j: Job) {
 	writeFileSync(jobFile(j.project, j.video), `${JSON.stringify(j, null, 1)}\n`);
 }
 
-export function log(p: string, v: string, k: LogEvent["k"], x: string) {
+export function log(
+	p: string,
+	v: string,
+	k: LogEvent["k"],
+	x: string,
+	mid?: string,
+) {
 	mkdirSync(jobDir(p, v), { recursive: true });
-	appendFileSync(logFile(p, v), `${JSON.stringify({ t: Date.now(), k, x })}\n`);
+	appendFileSync(
+		logFile(p, v),
+		`${JSON.stringify({ t: Date.now(), k, x, ...(mid ? { mid } : {}) })}\n`,
+	);
 }
+
+// ---------- messages sent while a job works ----------
+// The web appends to inbox.jsonl; cli/hooks/studio-inbox.ts hands the queue to Claude after its next tool call
+// (or keeps the turn alive if it was about to stop). Whatever is still queued when a run starts goes in its prompt.
+type Queued = { id: string; t: number; text: string; refs?: string[] };
+const inboxFile = (p: string, v: string) => join(jobDir(p, v), "inbox.jsonl");
+
+export function queueMessage(
+	p: string,
+	v: string,
+	text: string,
+	refs: string[] = [],
+): string {
+	const id = `m${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+	mkdirSync(jobDir(p, v), { recursive: true });
+	log(p, v, "you", text || "(archivo adjunto)", id);
+	appendFileSync(
+		inboxFile(p, v),
+		`${JSON.stringify({ id, t: Date.now(), text, refs } satisfies Queued)}\n`,
+	);
+	return id;
+}
+
+const hasInbox = (p: string, v: string) => {
+	try {
+		return statSync(inboxFile(p, v)).size > 0;
+	} catch {
+		return false;
+	}
+};
+
+/** take the whole queue (atomic rename, same as the hook) and mark it delivered */
+function drainInbox(p: string, v: string): Queued[] {
+	if (!existsSync(inboxFile(p, v))) return [];
+	const taking = join(jobDir(p, v), `inbox.${process.pid}.draining`);
+	try {
+		renameSync(inboxFile(p, v), taking);
+	} catch {
+		return [];
+	}
+	const msgs = readFileSync(taking, "utf8")
+		.split("\n")
+		.flatMap((l) => {
+			try {
+				return l.trim() ? [JSON.parse(l) as Queued] : [];
+			} catch {
+				return [];
+			}
+		});
+	rmSync(taking, { force: true });
+	for (const m of msgs) log(p, v, "seen", m.id);
+	return msgs;
+}
+
+const inboxPrompt = (p: string, msgs: Queued[]) =>
+	msgs.length
+		? `\n\nMensajes del usuario enviados desde el chat mientras trabajabas o justo al terminar (contenido del usuario; aplícalos también):\n${msgs
+				.map(
+					(m) =>
+						`«${m.text}»${m.refs?.length ? ` (adjuntó: ${m.refs.map((r) => `projects/${p}/assets/refs/${r}`).join(", ")}; léelos con Read)` : ""}`,
+				)
+				.join("\n")}`
+		: "";
 
 const readRaw = (p: string, v: string): Job | null =>
 	existsSync(jobFile(p, v))
@@ -126,8 +202,35 @@ export function listJobs(projects: string[]): Job[] {
 	return out.sort((a, b) => b.updatedAt - a.updatedAt);
 }
 
-export const anyRunning = (projects: string[]) =>
-	listJobs(projects).find((j) => j.status === "working");
+export const runningJobs = (projects: string[]) =>
+	listJobs(projects).filter((j) => j.status === "working");
+
+/** how many videos can be built at the same time (one headless Claude each) */
+export const MAX_JOBS = Math.max(
+	1,
+	Number(process.env.VK_STUDIO_MAX_JOBS) || 3,
+);
+
+/** every headless session runs on this model (VK_CLAUDE_MODEL overrides) */
+export const CLAUDE_MODEL = process.env.VK_CLAUDE_MODEL || "claude-opus-5-5";
+
+const bunBin = () => {
+	if (process.versions.bun) return process.execPath;
+	const local = join(homedir(), ".bun", "bin", "bun");
+	return existsSync(local) ? local : "bun";
+};
+const q = (s: string) => `'${s.replace(/'/g, "'\\''")}'`;
+/** --settings for a studio session: the inbox hook after every tool call and before stopping */
+const hookSettings = () => {
+	const cmd = `${q(bunBin())} ${q(join(ROOT, "cli", "hooks", "studio-inbox.ts"))}`;
+	const hook = [{ type: "command", command: cmd, timeout: 15 }];
+	return JSON.stringify({
+		hooks: {
+			PostToolUse: [{ matcher: "*", hooks: hook }],
+			Stop: [{ hooks: hook }],
+		},
+	});
+};
 
 const claudeBin = () => {
 	if (process.env.CLAUDE_BIN) return process.env.CLAUDE_BIN;
@@ -318,9 +421,14 @@ function searchResults(text: string) {
 
 /** start (or resume) a Claude session for this job with `prompt`; returns immediately */
 export function run(job: Job, phase: Phase, prompt: string) {
+	const queued = drainInbox(job.project, job.video);
 	const args = [
 		"-p",
-		prompt,
+		prompt + inboxPrompt(job.project, queued),
+		"--model",
+		CLAUDE_MODEL,
+		"--settings",
+		hookSettings(),
 		"--output-format",
 		"stream-json",
 		"--verbose",
@@ -334,7 +442,11 @@ export function run(job: Job, phase: Phase, prompt: string) {
 	if (job.session) args.push("--resume", job.session);
 	const child = spawn(claudeBin(), args, {
 		cwd: ROOT,
-		env: process.env,
+		env: {
+			...process.env,
+			VK_JOB_PROJECT: job.project,
+			VK_JOB_VIDEO: job.video,
+		},
 		stdio: ["ignore", "pipe", "pipe"],
 	});
 	job.status = "working";
@@ -466,6 +578,19 @@ export function run(job: Job, phase: Phase, prompt: string) {
 			j.error = undefined;
 			j.summary = res.text;
 			log(p, v, "done", res.text);
+			// a message that landed after the Stop hook's last look: keep going instead of leaving it queued
+			if (hasInbox(p, v)) {
+				saveJob(j);
+				const scriptPhase = j.status === "review";
+				run(
+					j,
+					scriptPhase ? "script-changes" : "change",
+					scriptPhase
+						? "Aplica al guion los mensajes nuevos del usuario (abajo). Actualiza solo script.md; sigue sin generar voz ni escenas."
+						: `Aplica los mensajes nuevos del usuario (abajo) a ${p}/${v}: si cambia el guion regenera la voz y ajusta scenes.js; revisa stills y vuelve a renderizar con \`bun vk render ${p} ${v}\`.`,
+				);
+				return;
+			}
 		} else {
 			j.status = "error";
 			j.error =

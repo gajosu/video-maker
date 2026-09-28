@@ -134,7 +134,7 @@ Sound: the style's music preset (or `music: <preset|music asset|sonicpi>` in scr
 
 ## Reference videos
 
-Give Claude a TikTok, Reel, Short or YouTube link to match its voice pace, cut rhythm, hook and graphic style (the `vk-ref` skill, or the "Videos de referencia" field in **Nuevo video**):
+Give Claude a TikTok, Reel, Short or YouTube link and it recreates it for your brand as closely as it can, shot by shot: same format, look-alike people and places generated with Google Flow, voice pace, cut rhythm, hook, captions and graphic style (the `vk-ref` skill, or the "Videos de referencia" field in **Nuevo video**):
 
 ```bash
 bun vk ref add mybrand "https://www.tiktok.com/@someone/video/…"   # download (yt-dlp, cobalt fallback) + analyze

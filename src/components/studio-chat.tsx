@@ -1,7 +1,9 @@
 import { useRouter } from "@tanstack/react-router";
 import {
 	Bot,
+	CheckCheck,
 	Clapperboard,
+	Clock,
 	Film,
 	ImageIcon,
 	Loader2,
@@ -287,7 +289,7 @@ export const md = (s: string) =>
 		),
 	);
 
-type Ev = { id: number; t: number; k: string; x: string };
+type Ev = { id: number; t: number; k: string; x: string; mid?: string };
 
 export function Activity({
 	project,
@@ -321,6 +323,10 @@ export function Activity({
 	const box = useRef<HTMLDivElement>(null);
 	const [zoom, setZoom] = useState<string | null>(null);
 	const working = status === "working";
+	// video jobs take messages mid-turn (queued, delivered after Claude's next tool call); other chats wait
+	const canQueue = !onSend;
+	const locked = working && !canQueue;
+	const seen = new Set(log.filter((e) => e.k === "seen").map((e) => e.x));
 	const n = log.length;
 
 	const upload = async (files: FileList | null) => {
@@ -402,7 +408,9 @@ export function Activity({
 			: status === "done" || !status
 				? "Pide un cambio al video…"
 				: status === "working"
-					? "Espera a que termine este paso…"
+					? canQueue
+						? "Escribe cuando quieras: lo toma sin detener lo que está haciendo…"
+						: "Espera a que termine este paso…"
 					: "Dile que continúe o qué corregir…");
 
 	return (
@@ -420,12 +428,27 @@ export function Activity({
 					<p className="text-muted-foreground">{empty}</p>
 				)}
 				{log.map((e) =>
-					e.k === "you" ? (
+					e.k === "seen" ? null : e.k === "you" ? (
 						<div
 							key={e.id}
 							className="ml-8 whitespace-pre-wrap rounded-lg bg-muted px-3 py-2"
 						>
 							{e.x}
+							{e.mid && (
+								<div className="mt-1 flex items-center gap-1 text-[11px] text-muted-foreground">
+									{seen.has(e.mid) ? (
+										<>
+											<CheckCheck className="size-3" aria-hidden /> Claude lo
+											recibió
+										</>
+									) : (
+										<>
+											<Clock className="size-3" aria-hidden /> En cola: lo toma
+											tras su próximo paso
+										</>
+									)}
+								</div>
+							)}
 						</div>
 					) : e.k === "media" ? (
 						<div key={e.id}>
@@ -503,7 +526,7 @@ export function Activity({
 						className={`${field} min-h-11 flex-1 resize-none`}
 						rows={2}
 						value={msg}
-						disabled={working || busy}
+						disabled={locked || busy}
 						onChange={(e) => setMsg(e.target.value)}
 						placeholder={placeholder}
 						onKeyDown={(e) => {
@@ -516,7 +539,7 @@ export function Activity({
 					<button
 						type="button"
 						onClick={() => fileInput.current?.click()}
-						disabled={working || busy || uploading}
+						disabled={locked || busy || uploading}
 						className="self-end rounded-lg border p-2.5 text-muted-foreground hover:border-white/40 hover:text-foreground disabled:opacity-40"
 						aria-label="Adjuntar archivo"
 						title="Adjuntar imagen"
@@ -537,7 +560,7 @@ export function Activity({
 					/>
 					<button
 						type="submit"
-						disabled={working || busy || (!msg.trim() && !pendingRefs.length)}
+						disabled={locked || busy || (!msg.trim() && !pendingRefs.length)}
 						className="self-end rounded-lg bg-accent p-2.5 text-accent-foreground disabled:opacity-40"
 						aria-label="Enviar"
 					>

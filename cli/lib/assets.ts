@@ -2,8 +2,9 @@
 // Every asset has a name (used by scenes: asset('name')), a source and a license,
 // so credits can be generated and url-sourced files re-downloaded (`vk asset pull`).
 import { spawnSync } from "node:child_process";
-import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { basename, dirname, extname, join } from "node:path";
+import { withLockSync } from "./lock.ts";
 import { projectDir } from "./paths.ts";
 
 export type AssetKind = "image" | "video" | "sfx" | "music";
@@ -69,7 +70,21 @@ export function loadManifest(p: string): Manifest {
 
 export function saveManifest(p: string, m: Manifest) {
 	mkdirSync(assetsDir(p), { recursive: true });
-	writeFileSync(manifestPath(p), `${JSON.stringify(m, null, 1)}\n`);
+	// write-then-rename so a reader in another process never sees half a file
+	const tmp = `${manifestPath(p)}.${process.pid}.tmp`;
+	writeFileSync(tmp, `${JSON.stringify(m, null, 1)}\n`);
+	renameSync(tmp, manifestPath(p));
+}
+
+/** read-modify-write the manifest under a lock (several videos can be built at once) */
+export function updateManifest<T>(p: string, fn: (m: Manifest) => T): T {
+	mkdirSync(assetsDir(p), { recursive: true });
+	return withLockSync(join(assetsDir(p), ".manifest.lock"), () => {
+		const m = loadManifest(p);
+		const r = fn(m);
+		saveManifest(p, m);
+		return r;
+	});
 }
 
 export function assertAssetName(n: string) {
@@ -134,9 +149,6 @@ export function addFile(p: string, file: string, o: AddOptions): Asset {
 	if (file !== abs) copyFileSync(file, abs);
 	// generators/downloads stage files in assets/.tmp: clean up after copying
 	if (file.startsWith(join(assetsDir(p), ".tmp"))) rmSync(file, { force: true });
-	const m = loadManifest(p);
-	const old = m.assets[name];
-	if (old && old.file !== rel) rmSync(join(assetsDir(p), old.file), { force: true });
 	const asset: Asset = {
 		name,
 		kind,
@@ -150,10 +162,13 @@ export function addFile(p: string, file: string, o: AddOptions): Asset {
 		addedAt: today(),
 	};
 	if (kind === "video") asset.frames = extractFrames(p, name, abs, o.fps ?? 30);
-	m.assets[name] = asset;
-	const reqId = o.request ?? m.requests.find((r) => r.status === "open" && r.name === name)?.id;
-	for (const r of m.requests) if (r.id === reqId) r.status = "done";
-	saveManifest(p, m);
+	updateManifest(p, (m) => {
+		const old = m.assets[name];
+		if (old && old.file !== rel) rmSync(join(assetsDir(p), old.file), { force: true });
+		m.assets[name] = asset;
+		const reqId = o.request ?? m.requests.find((r) => r.status === "open" && r.name === name)?.id;
+		for (const r of m.requests) if (r.id === reqId) r.status = "done";
+	});
 	return asset;
 }
 
@@ -190,13 +205,13 @@ export async function addUrl(p: string, url: string, o: AddOptions): Promise<Ass
 }
 
 export function removeAsset(p: string, name: string) {
-	const m = loadManifest(p);
-	const a = m.assets[name];
-	if (!a) throw new Error(`no asset "${name}"`);
-	rmSync(join(assetsDir(p), a.file), { force: true });
-	if (a.frames) rmSync(join(assetsDir(p), a.frames.dir), { recursive: true, force: true });
-	delete m.assets[name];
-	saveManifest(p, m);
+	updateManifest(p, (m) => {
+		const a = m.assets[name];
+		if (!a) throw new Error(`no asset "${name}"`);
+		rmSync(join(assetsDir(p), a.file), { force: true });
+		if (a.frames) rmSync(join(assetsDir(p), a.frames.dir), { recursive: true, force: true });
+		delete m.assets[name];
+	});
 }
 
 /** Re-download assets whose files are missing but whose source is a URL (fresh clones, shared manifests). */
@@ -221,13 +236,13 @@ export function missingAssets(p: string): Asset[] {
 
 export function addRequest(p: string, r: Omit<AssetRequest, "id" | "status" | "createdAt">): AssetRequest {
 	assertAssetName(r.name);
-	const m = loadManifest(p);
-	const existing = m.requests.find((x) => x.name === r.name && x.status === "open");
-	if (existing) Object.assign(existing, r);
-	const req: AssetRequest = existing ?? { ...r, id: `${r.name}-${Date.now().toString(36)}`, status: "open", createdAt: today() };
-	if (!existing) m.requests.push(req);
-	saveManifest(p, m);
-	return req;
+	return updateManifest(p, (m) => {
+		const existing = m.requests.find((x) => x.name === r.name && x.status === "open");
+		if (existing) Object.assign(existing, r);
+		const req: AssetRequest = existing ?? { ...r, id: `${r.name}-${Date.now().toString(36)}`, status: "open", createdAt: today() };
+		if (!existing) m.requests.push(req);
+		return req;
+	});
 }
 
 // ---------- page integration ----------

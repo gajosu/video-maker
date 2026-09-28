@@ -34,14 +34,62 @@ window.setCues=function(L,D,mk,wd){window.MK=mk&&!Array.isArray(mk)?mk:{};window
 window.events=function(){return EV};
 // scene list for the preview UI: [{name, start, end}]
 window.scenes=function(){return TL.map(([name,a,b])=>({name,start:a,end:b}))};
-window.render=function(t){
+// the page for time t (a pure function of t)
+function frameHtml(t){
   let sc=TL[TL.length-1];
   for(const s of TL){if(t>=s[1]&&t<s[2]){sc=s;break}}
   const [name,a,,o]=sc;
-  if(!S[name]) { $.innerHTML=`<div class="cap" style="top:${H/2-60}px;color:var(--red)">missing scene: ${esc(name)}</div>`; return; }
+  if(!S[name]) return `<div class="cap" style="top:${H/2-60}px;color:var(--red)">missing scene: ${esc(name)}</div>`;
   let h=S[name](t-a,t,o);
   h=h.replace(/(\p{Extended_Pictographic})️?/gu,(m,e)=>`<img src="node_modules/@twemoji/svg/${e.codePointAt(0).toString(16)}.svg" style="height:1em;width:1em;vertical-align:-0.12em;margin:0 .06em">`);
-  $.innerHTML=h+grain(t);
+  return h+grain(t);
+}
+// the CLI renderer: draw now, then it waits for the images itself before each screenshot
+window.render=function(t){ LIVE.shown=++LIVE.seq; $.innerHTML=frameHtml(t); };
+
+// ---------- live preview (web player) ----------
+// Faithful to the final MP4: time snaps to the same frames the render uses (i/fps), and a frame is built
+// off-screen and swapped in only once its images (clip frames, photos, logos, emoji) are decoded, so the
+// player holds the previous frame instead of flashing blank. Upcoming frames' images are preloaded.
+const LIVE={seq:0,shown:0,frame:-1,warm:new Map(),ahead:0};
+const FPS=()=>(window.VK&&VK.format&&VK.format.fps)||30;
+const SRC=/<img\b[^>]*?\ssrc="([^"]+)"/g;
+function warmUrl(u){
+  if(LIVE.warm.has(u)) { const im=LIVE.warm.get(u); LIVE.warm.delete(u); LIVE.warm.set(u,im); return im; }
+  const im=new Image(); im.decoding='async'; im.src=u; im.ok=false;
+  im.ready=im.decode().then(()=>{im.ok=true},()=>{im.ok=true});
+  LIVE.warm.set(u,im);
+  // keep ~4 s of clip frames decoded (a 720p frame is ~3.5 MB decoded; more than this starves the main thread)
+  while(LIVE.warm.size>140) LIVE.warm.delete(LIVE.warm.keys().next().value);
+  return im;
+}
+// look ahead a few frames per call (up to 1.5 s past t), so preloading never stalls a frame
+function prefetch(t,maxFrames){
+  const f=FPS(), end=Math.min(window.DUR||0,t+1.5);
+  if(LIVE.ahead<t||LIVE.ahead>end+1) LIVE.ahead=t;
+  for(let k=0;k<maxFrames&&LIVE.ahead<end;k++){
+    LIVE.ahead+=1/f;
+    let h; try{ h=frameHtml(LIVE.ahead); }catch{ continue; }
+    for(const m of h.matchAll(SRC)) warmUrl(m[1]);
+  }
+}
+window.renderLive=function(t){
+  // the same frames the MP4 has: 0 … ceil(fps·D)-1
+  const f=FPS(), last=Math.max(0,Math.ceil(f*(window.DUR||0))-1), i=Math.min(last,Math.max(0,Math.floor(t*f+1e-6)));
+  if(i!==LIVE.frame){
+    LIVE.frame=i;
+    const ft=i/f, seq=++LIVE.seq;
+    const next=document.createElement('div');
+    next.innerHTML=frameHtml(ft);
+    const warm=[...next.querySelectorAll('img')].map(im=>warmUrl(im.getAttribute('src')));
+    const swap=()=>{ if(seq<LIVE.shown) return; LIVE.shown=seq; $.replaceChildren(...next.childNodes); };
+    // every image already decoded in memory: paint now; otherwise hold the previous frame until they are
+    if(warm.every(w=>w.ok)) swap();
+    else Promise.race([Promise.all(warm.map(w=>w.ready)),new Promise(r=>setTimeout(r,1500))]).then(swap);
+  }
+  prefetch(i/f,4);
 };
+// after load / a seek: warm the next 2 s right away
+window.warmFrom=function(t){ LIVE.frame=-1; LIVE.ahead=Math.max(0,t-1/FPS()); prefetch(LIVE.ahead,Math.ceil(2*FPS())); };
 window.warm=function(){ $.innerHTML=`<div class="display">${esc(VK.brand.name||'')}</div><div>${STR.warm||''}</div>`; };
 window.setLight=function(on){window.LIGHT=!!on;document.body.classList.toggle('light',!!on)};

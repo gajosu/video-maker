@@ -7,14 +7,16 @@ import { readJob as readPkgJob, readPkgLog } from "../../cli/lib/job.ts";
 import { projectDir } from "../../cli/lib/paths.ts";
 import { listProjects, loadProject, loadVideo } from "../../cli/lib/project.ts";
 import {
-	anyRunning,
 	cancel,
 	type Job,
 	listJobs,
 	log,
+	MAX_JOBS,
+	queueMessage,
 	readJob,
 	readLog,
 	run,
+	runningJobs,
 	saveJob,
 } from "./studio-runner.ts";
 
@@ -38,11 +40,12 @@ const mustJob = (p: string, v: string): Job => {
 	if (!j) throw new Error("No existe ese trabajo");
 	return j;
 };
+/** several videos can be built at once, up to MAX_JOBS headless Claude sessions (VK_STUDIO_MAX_JOBS) */
 const busy = () => {
-	const r = anyRunning(projectSlugs());
-	if (r)
+	const r = runningJobs(projectSlugs());
+	if (r.length >= MAX_JOBS)
 		throw new Error(
-			`Ya hay un video en proceso (${r.project}/${r.video}). Espera a que termine o cancélalo.`,
+			`Ya hay ${r.length} videos en proceso (${r.map((j) => j.video).join(", ")}), el máximo a la vez. Espera a que termine uno o cancélalo.`,
 		);
 };
 
@@ -129,7 +132,8 @@ export const getStudio = createServerFn({ method: "GET" }).handler(async () => {
 	return {
 		projects,
 		jobs,
-		running: jobs.some((j) => j.status === "working"),
+		running: jobs.filter((j) => j.status === "working").length,
+		maxJobs: MAX_JOBS,
 		assets,
 		projectVoices,
 		voices: acct.voices.filter(
@@ -166,7 +170,7 @@ function extras(job: Job): string[] {
 		);
 	if (job.videoRefs?.length)
 		out.push(
-			`Videos de referencia de este trabajo (ya analizados con vk-ref; \`bun vk ref list ${job.project}\`): ${job.videoRefs.join(" ")}. Sigue su brief.md en voz (ritmo), duración de planos, estilo de subtítulos, layout, transiciones y animación, con los colores y fuentes de la marca. Nunca uses su material.`,
+			`Videos de referencia de este trabajo (ya analizados con vk-ref; \`bun vk ref list ${job.project}\`): ${job.videoRefs.join(" ")}. Recréalas lo más parecido posible siguiendo su brief.md y el paso 5 del skill vk-ref: mismo formato y plan plano por plano, personas y lugares parecidos (avatares y locaciones generados con Google Flow dentro del presupuesto; nunca la persona real), voz con la misma energía y ritmo, misma duración de planos, mismo sistema de subtítulos, layout, transiciones y animación, con los colores y fuentes de la marca. Al final compara tu render con la referencia (\`bun vk ref add\` de tu mp4) y corrige las diferencias grandes. Nunca uses su material.`,
 		);
 	if (job.music)
 		out.push(
@@ -303,7 +307,7 @@ export const startJob = createServerFn({ method: "POST" })
 				`Usa solo hechos del knowledge base (\`bun vk kb ${data.project}\`). Si el texto del usuario trae hechos nuevos sobre el producto, agrégalos al knowledge base con fecha y fuente "usuario (interfaz web)".`,
 				...(data.videoRefs.length
 					? [
-							`Antes de escribir, estudia estos videos de referencia con el skill vk-ref: ${data.videoRefs.map((u) => `\`bun vk ref add ${data.project} "${u}"\``).join(", ")}; mira hook.jpg, shots.jpg y timeline.jpg y escribe su brief.md. Imita su gancho, estructura, largo de frases y cadencia (no copies su texto). Si uno no se puede descargar, sigue sin él y dilo.`,
+							`El usuario quiere un video lo más parecido posible a estas referencias. Antes de escribir, sigue el skill vk-ref pasos 1-4 con cada una: ${data.videoRefs.map((u) => `\`bun vk ref add ${data.project} "${u}"\``).join(", ")}; mira hook.jpg, shots.jpg, timeline.jpg y los frames, clasifica el formato y escribe su brief.md con el plan plano por plano (personas, lugares, encuadres, subtítulos, ritmo). Escribe el guion con su misma estructura, número y largo de frases, gancho y CTA (con hechos del knowledge base, sin copiar su texto). Si una no se puede descargar, sigue sin ella y dilo.`,
 						]
 					: []),
 				...(data.assets.length
@@ -407,11 +411,31 @@ export const messageJob = createServerFn({ method: "POST" })
 		return { ...ids(d), text: msg, refs };
 	})
 	.handler(async ({ data }) => {
-		busy();
 		const job =
 			readJob(data.project, data.video) ?? adoptVideo(data.project, data.video);
-		if (job.status === "working")
-			throw new Error("Espera a que termine el paso actual");
+		const logRefs = () => {
+			for (const r of data.refs)
+				log(
+					data.project,
+					data.video,
+					"media",
+					JSON.stringify({
+						type: "asset",
+						name: r,
+						kind: "image",
+						file: `refs/${r}`,
+						source: "upload",
+						t: Date.now(),
+					}),
+				);
+		};
+		// working: queue it; the session picks it up after its next tool call without stopping
+		if (job.status === "working") {
+			queueMessage(data.project, data.video, data.text, data.refs);
+			logRefs();
+			return { ok: true, queued: true };
+		}
+		busy();
 		log(data.project, data.video, "you", data.text || "(archivo adjunto)");
 		for (const r of data.refs)
 			log(
