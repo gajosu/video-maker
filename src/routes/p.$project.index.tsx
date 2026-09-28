@@ -2,8 +2,9 @@ import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { BookOpen, Film, Images, Loader2, Palette, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { AssetsPanel } from "#/components/assets-panel";
-import { Cmd, Empty, StatusBadge, Swatch } from "#/components/ui";
+import { Cmd, Empty, PkgBadge, StatusBadge, Swatch } from "#/components/ui";
 import { fileUrl, fmtAgo } from "#/lib/format";
+import { pkgStepText } from "#/lib/studio";
 import { cn } from "#/lib/utils";
 import { deleteProject, getProject } from "#/server/vk";
 
@@ -109,7 +110,7 @@ function ProjectPage() {
 }
 
 function Videos() {
-	const { project, videos } = Route.useLoaderData();
+	const { project, videos, pkgJobs } = Route.useLoaderData();
 	if (!videos.length)
 		return (
 			<Empty title="No videos yet">
@@ -119,53 +120,63 @@ function Videos() {
 		);
 	return (
 		<ul className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5 xl:grid-cols-6">
-			{videos.map((v) => (
-				<li key={v.slug}>
-					<Link
-						to="/p/$project/v/$video"
-						params={{ project: project.slug, video: v.slug }}
-						className="group block"
-					>
-						<div
-							className="relative aspect-[9/16] overflow-hidden rounded-xl border bg-muted transition-colors group-hover:border-white/30"
-							style={{
-								background: `linear-gradient(160deg, ${project.brand.primary}, ${project.brand.secondary})`,
-							}}
+			{videos.map((v) => {
+				const pkgJob = pkgJobs[v.slug];
+				return (
+					<li key={v.slug}>
+						<Link
+							to="/p/$project/v/$video"
+							params={{ project: project.slug, video: v.slug }}
+							className="group block"
 						>
-							{v.files.stills[0] ? (
-								<img
-									src={fileUrl(
-										project.slug,
-										`videos/${v.slug}/${v.files.stills[0]}`,
-										v.updatedAt,
-									)}
-									alt=""
-									loading="lazy"
-									className="absolute inset-0 size-full object-cover"
-								/>
-							) : (
-								<span className="absolute inset-x-3 top-1/3 text-center text-lg font-extrabold leading-tight text-white">
-									{v.title}
+							<div
+								className="relative aspect-[9/16] overflow-hidden rounded-xl border bg-muted transition-colors group-hover:border-white/30"
+								style={{
+									background: `linear-gradient(160deg, ${project.brand.primary}, ${project.brand.secondary})`,
+								}}
+							>
+								{v.files.stills[0] ? (
+									<img
+										src={fileUrl(
+											project.slug,
+											`videos/${v.slug}/${v.files.stills[0]}`,
+											v.updatedAt,
+										)}
+										alt=""
+										loading="lazy"
+										className="absolute inset-0 size-full object-cover"
+									/>
+								) : (
+									<span className="absolute inset-x-3 top-1/3 text-center text-lg font-extrabold leading-tight text-white">
+										{v.title}
+									</span>
+								)}
+								<span className="absolute top-2 left-2 flex flex-wrap gap-1">
+									<StatusBadge status={v.status} />
+									{pkgJob && <PkgBadge job={pkgJob} />}
 								</span>
-							)}
-							<span className="absolute top-2 left-2">
-								<StatusBadge status={v.status} />
-							</span>
-							{v.cues && (
-								<span className="absolute right-2 bottom-2 rounded bg-black/70 px-1.5 py-0.5 text-xs font-medium text-white tabular">
-									{v.cues.D.toFixed(1)}s
-								</span>
-							)}
-						</div>
-						<div className="mt-2 truncate text-sm font-medium group-hover:underline">
-							{v.title}
-						</div>
-						<div className="truncate text-xs text-muted-foreground">
-							{v.style} · {fmtAgo(v.updatedAt)}
-						</div>
-					</Link>
-				</li>
-			))}
+								{pkgJob && pkgJob.state !== "done" ? (
+									<span className="absolute inset-x-2 bottom-2 truncate rounded bg-black/70 px-1.5 py-0.5 text-[11px] font-medium text-white">
+										{pkgStepText(pkgJob)}
+									</span>
+								) : (
+									v.cues && (
+										<span className="absolute right-2 bottom-2 rounded bg-black/70 px-1.5 py-0.5 text-xs font-medium text-white tabular">
+											{v.cues.D.toFixed(1)}s
+										</span>
+									)
+								)}
+							</div>
+							<div className="mt-2 truncate text-sm font-medium group-hover:underline">
+								{v.title}
+							</div>
+							<div className="truncate text-xs text-muted-foreground">
+								{v.style} · {fmtAgo(v.updatedAt)}
+							</div>
+						</Link>
+					</li>
+				);
+			})}
 		</ul>
 	);
 }

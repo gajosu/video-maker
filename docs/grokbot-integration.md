@@ -18,10 +18,12 @@ shell commands (e.g. `wsl -e bash -lc "cd ~/projects/video-maker && bun vk packa
    any images you already supplied, and files an open asset **request** for every visual prompt
    that still needs an image.
 2. **Starts a background job** and returns immediately, printing the job's status JSON (see
-   below). The job then, in order: generates the missing images (OpenAI `gpt-image-1`, or
-   `gpt-image-2` if you set `VK_IMAGE_MODEL`), tries to download the given music link, runs the
-   project's configured ElevenLabs voice, validates the result (the same checks `bun vk check`
-   runs), grabs a couple of preview stills, and renders the final MP4.
+   below). The job then, in order: generates the missing images (OpenAI `gpt-image-2` by default,
+   override with `VK_IMAGE_MODEL`; up to `VK_IMAGE_CONCURRENCY` in parallel, default 5, each with
+   a 180 s timeout and up to 2 retries on timeout/5xx/429 — see **Image generation** below), tries
+   to download the given music link, runs the project's configured ElevenLabs voice, validates the
+   result (the same checks `bun vk check` runs), grabs a couple of preview stills, and renders the
+   final MP4.
 
 `bun vk package status <project> <video>` prints the current job state as JSON — poll this
 instead of waiting on the first command (renders take minutes; a shell with a short timeout can
@@ -139,7 +141,11 @@ standalone `.json` file.
   ],
   "output": "projects/atlas-misterioso/videos/solnitsata-sal-cerveza-y-una-ciudad-amur/out/solnitsata-sal-cerveza-y-una-ciudad-amur.mp4",
   "stills": ["projects/atlas-misterioso/videos/solnitsata-sal-cerveza-y-una-ciudad-amur/stills/t1.jpg", "…"],
-  "package": { "sourcePath": "/path/given/to/bun-vk-package", "title": "…", "visuals": 20, "imagesProvided": 0, "imagesToGenerate": 20 },
+  "package": {
+    "sourcePath": "/path/given/to/bun-vk-package", "title": "…", "visuals": 20,
+    "imagesProvided": 0, "imagesToGenerate": 20,
+    "imagesDone": 7   // advances during the "images" step (ok, retried or given-up-on — see below)
+  },
   "startedAt": 1790614346510,
   "updatedAt": 1790616640935
 }
@@ -150,6 +156,44 @@ log) — a different filename from the web Studio's own `jobs/<video>/job.json`,
 runners never read or clobber each other's records. A job whose `state` is `"running"` but whose
 `pid` is no longer alive (crash, machine restart) flips to `"error"` the next time it's read, with
 a message pointing at `package resume`.
+
+## Image generation
+
+Images generate **in parallel**, up to `VK_IMAGE_CONCURRENCY` at a time (default **5**), each
+using OpenAI **`gpt-image-2`** by default for this pipeline specifically (override with
+`VK_IMAGE_MODEL`; other `bun vk` commands, e.g. `asset gen`, keep defaulting to `gpt-image-1`
+unless you set the same env var). Each request has a **180 s timeout** (`AbortSignal`) and gets
+**up to 2 retries with backoff** (~1.5 s, ~3 s) on a timeout, a `429`, or a `5xx` — this is what
+fixes the original failure mode: one slow/hung request no longer stalls the whole job indefinitely.
+Every attempt is logged to `pkg-log.jsonl` (`image imgNN: ok`, `retry N of 2 (…)`, or `failed (…)`),
+and `job.package.imagesDone` / `imagesToGenerate` (plus `job.progress`) advance per image, not just
+per pipeline step. An image that still fails after its retries becomes a `job.warnings` entry and
+is left as an **open asset request** (the render uses a placeholder for it) — the job still
+finishes. Only if **more than half** of the requested images fail does the whole step (and job)
+throw, on the theory that a mostly-broken video isn't worth finishing unattended.
+
+## Watching a job in the web preview
+
+You (Grokbot) never touch the web app — this is for Gabriel, who was otherwise "blind" while a
+package job ran in the background. No new command or flag on your side; it just reads the same
+`pkg.json`/`pkg-log.jsonl` you already produce:
+
+- **Video list** (`/p/<project>`, "Videos" tab): every video with a `jobs/<video>/pkg.json` gets a
+  small badge next to its normal file-status badge — **"En cola"**, **"En proceso"** (hover for
+  the exact step), **"Listo"**, or **"Error"** — plus the current step in plain Spanish at the
+  bottom of the thumbnail while it's running, e.g. *"Generando imágenes 7/20"*, *"Buscando
+  música"*, *"Generando la voz"*, *"Renderizando"*.
+- **Video page** (`/p/<project>/v/<video>`, "Chat" tab, the default): the same badge next to the
+  title, and the chat panel shows the whole `pkg-log.jsonl` translated into readable Spanish
+  messages (step started, each image generated/retried/failed, music downloaded or its fallback,
+  voice done, check result, render done, warnings, errors), updating every 2 s while the job is
+  queued/running. When it finishes, the same panel appends the preview stills grid and the
+  playable final MP4, inline. The panel is clearly labeled **"Pipeline automático de Grokbot"** so
+  it reads distinctly from the web Studio's own chat. Once the job is `done`/`error`, the normal
+  Studio chat right below it works exactly as before — Gabriel can ask for changes there and
+  they're applied to the video you produced, same as any terminal-made video.
+- This is display-only: it's read straight from your job files (nothing is written back), so it
+  can't interfere with a running job, and there's nothing extra for you to do.
 
 ## Known limitations (read before relying on this for a real drop)
 
@@ -166,7 +210,8 @@ a message pointing at `package resume`.
   built-in "missing asset" placeholder for those beats (a clearly-labeled striped frame, not a
   silent failure) — check `job.warnings` and `bun vk asset requests <project>`. There's no
   automatic stock-photo fallback for AI-image prompts (English, often fictional/historical
-  reconstructions) — stock search wouldn't reliably match, so it's not wired in.
+  reconstructions) — stock search wouldn't reliably match, so it's not wired in. See **Image
+  generation** above for the model/concurrency/retry/timeout knobs.
 - **`bun vk voice` needs `ELEVENLABS_API_KEY`** and the project's `project.json` `voice.voiceId`
   set — this is a hard requirement, the job fails clearly if either is missing.
 - **One package = one video**, rendered with the project's already-configured brand/voice/style.

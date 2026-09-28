@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { type PkgSummary, pkgBadgeLabel, pkgStepText } from "#/lib/studio";
 import { cn } from "#/lib/utils";
 
 const STATUS: Record<string, string> = {
@@ -16,6 +17,33 @@ export function StatusBadge({ status }: { status: string }) {
 				aria-hidden
 			/>
 			{status}
+		</span>
+	);
+}
+
+const PKG_TONE: Record<PkgSummary["state"], string> = {
+	queued: "bg-zinc-500",
+	running: "bg-sky-400",
+	done: "bg-accent",
+	error: "bg-red-400",
+};
+
+/** the Grokbot package pipeline's own status, separate from the video's file-based status (script/voice/render) */
+export function PkgBadge({ job }: { job: PkgSummary }) {
+	return (
+		<span
+			className="inline-flex items-center gap-1.5 rounded-full bg-black/75 px-2 py-0.5 text-xs font-medium text-white"
+			title={pkgStepText(job)}
+		>
+			<span
+				className={cn(
+					"size-1.5 rounded-full",
+					PKG_TONE[job.state],
+					job.state === "running" && "animate-pulse",
+				)}
+				aria-hidden
+			/>
+			{pkgBadgeLabel(job)}
 		</span>
 	);
 }

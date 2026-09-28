@@ -12,7 +12,7 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { VideoChat } from "#/components/studio-chat";
-import { Cmd, Empty, StatusBadge } from "#/components/ui";
+import { Cmd, Empty, PkgBadge, StatusBadge } from "#/components/ui";
 import { fileUrl, fmtTime } from "#/lib/format";
 import { cn } from "#/lib/utils";
 import { deleteVideo, getVideo } from "#/server/vk";
@@ -38,7 +38,7 @@ type Side = "chat" | "script" | "render" | "stills" | "cues";
 type Source = "mix" | "voice" | "none";
 
 function VideoPage() {
-	const { project, video } = Route.useLoaderData();
+	const { project, video, pkgJob } = Route.useLoaderData();
 	const p = project.slug;
 	const base = `videos/${video.slug}`;
 
@@ -312,6 +312,7 @@ function VideoPage() {
 						{video.title}
 					</h1>
 					<StatusBadge status={video.status} />
+					{pkgJob && <PkgBadge job={pkgJob} />}
 					<span className="rounded-full border px-2 py-0.5 text-xs text-muted-foreground">
 						style: {video.style}
 					</span>

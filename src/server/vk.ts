@@ -10,7 +10,9 @@ import {
 import { join } from "node:path";
 import { createServerFn } from "@tanstack/react-start";
 import { marked } from "marked";
+import type { PkgSummary } from "#/lib/studio";
 import { loadManifest } from "../../cli/lib/assets.ts";
+import { readJob as readPkgJob } from "../../cli/lib/job.ts";
 import { PROJECTS_DIR, projectDir, videoDir } from "../../cli/lib/paths.ts";
 import {
 	listProjects,
@@ -19,6 +21,21 @@ import {
 	loadVideo,
 	readKnowledge,
 } from "../../cli/lib/project.ts";
+
+/** the Grokbot package job for a video, if any (a video the "Nuevo video" studio made has no `pkg.json`) */
+function pkgSummary(p: string, v: string): PkgSummary | null {
+	const j = readPkgJob(p, v);
+	if (!j) return null;
+	return {
+		state: j.state,
+		step: j.step,
+		progress: j.progress,
+		error: j.error,
+		warnings: j.warnings,
+		imagesDone: j.package.imagesDone,
+		imagesTotal: j.package.imagesToGenerate,
+	};
+}
 
 const slugs =
 	<T extends Record<string, string>>(keys: (keyof T)[]) =>
@@ -59,7 +76,13 @@ export const getProject = createServerFn({ method: "GET" })
 			html: marked.parse(d.body, { async: false }),
 		}));
 		const manifest = loadManifest(data.project);
-		return { project, videos: listVideos(data.project), knowledge, manifest };
+		const videos = listVideos(data.project);
+		const pkgJobs: Record<string, PkgSummary> = {};
+		for (const v of videos) {
+			const j = pkgSummary(data.project, v.slug);
+			if (j) pkgJobs[v.slug] = j;
+		}
+		return { project, videos, knowledge, manifest, pkgJobs };
 	});
 
 const HEX = /^#[0-9a-fA-F]{6}$/;
@@ -120,6 +143,7 @@ export const getVideo = createServerFn({ method: "GET" })
 	.handler(async ({ data }) => ({
 		project: loadProject(data.project),
 		video: loadVideo(data.project, data.video),
+		pkgJob: pkgSummary(data.project, data.video),
 	}));
 
 /** true if a video job or the project-setup chat is still running (their job.json files all share a "status" field) */

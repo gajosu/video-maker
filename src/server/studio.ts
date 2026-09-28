@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { createServerFn } from "@tanstack/react-start";
 import { loadManifest } from "../../cli/lib/assets.ts";
 import { listVoices, tier } from "../../cli/lib/elevenlabs.ts";
+import { readJob as readPkgJob, readPkgLog } from "../../cli/lib/job.ts";
 import { projectDir } from "../../cli/lib/paths.ts";
 import { listProjects, loadProject, loadVideo } from "../../cli/lib/project.ts";
 import {
@@ -433,6 +434,27 @@ export const getChat = createServerFn({ method: "GET" })
 			error: job?.error ?? "",
 			cost: job?.cost ?? 0,
 			log: job ? readLog(data.project, data.video) : [],
+		};
+	});
+
+/** the "Nuevo video" chat's sibling: the thread of a `bun vk package` job (Grokbot pipeline), if this
+ *  video has one — read-only, unified into the same video page so Gabriel isn't blind while it runs. */
+export const getPkgChat = createServerFn({ method: "GET" })
+	.validator(ids)
+	.handler(async ({ data }) => {
+		const job = readPkgJob(data.project, data.video);
+		if (!job) return null;
+		return {
+			state: job.state,
+			step: job.step,
+			progress: job.progress,
+			error: job.error,
+			warnings: job.warnings,
+			imagesDone: job.package.imagesDone,
+			imagesTotal: job.package.imagesToGenerate,
+			output: job.output,
+			stills: job.stills,
+			log: readPkgLog(data.project, data.video),
 		};
 	});
 

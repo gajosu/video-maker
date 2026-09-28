@@ -1,5 +1,6 @@
 import { useRouter } from "@tanstack/react-router";
 import {
+	Bot,
 	Film,
 	ImageIcon,
 	Loader2,
@@ -12,9 +13,9 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { fileUrl } from "#/lib/format";
-import { PHASE_ES } from "#/lib/studio";
+import { PHASE_ES, pkgLogToEvents, pkgStepText } from "#/lib/studio";
 import { cn } from "#/lib/utils";
-import { cancelJob, getChat, messageJob } from "#/server/studio";
+import { cancelJob, getChat, getPkgChat, messageJob } from "#/server/studio";
 
 const field =
 	"w-full rounded-lg border bg-card px-3 py-2 text-sm outline-none focus:border-white/40";
@@ -489,7 +490,9 @@ export function Activity({
 	);
 }
 
-/** chat for any video (preview page): loads its job log, polls while Claude works */
+/** chat for any video (preview page): loads its job log, polls while Claude works. If the video has a
+ *  `bun vk package` (Grokbot) job, its thread (translated to Spanish) is shown first, clearly labeled as
+ *  the automatic pipeline, with the normal Studio chat unified right below it for changes afterwards. */
 export function VideoChat({
 	project,
 	video,
@@ -498,28 +501,65 @@ export function VideoChat({
 	video: string;
 }) {
 	const [d, setD] = useState<Awaited<ReturnType<typeof getChat>> | null>(null);
+	const [pkg, setPkg] = useState<
+		Awaited<ReturnType<typeof getPkgChat>> | undefined
+	>(undefined);
 	const load = useCallback(
 		async () => setD(await getChat({ data: { project, video } })),
 		[project, video],
 	);
+	const loadPkg = useCallback(
+		async () => setPkg(await getPkgChat({ data: { project, video } })),
+		[project, video],
+	);
 	useEffect(() => {
 		load();
-	}, [load]);
+		loadPkg();
+	}, [load, loadPkg]);
 	useEffect(() => {
 		if (d?.status !== "working") return;
 		const id = setInterval(load, 2000);
 		return () => clearInterval(id);
 	}, [d?.status, load]);
-	if (!d)
+	const pkgActive = pkg?.state === "queued" || pkg?.state === "running";
+	useEffect(() => {
+		if (!pkgActive) return;
+		const id = setInterval(loadPkg, 2000);
+		return () => clearInterval(id);
+	}, [pkgActive, loadPkg]);
+	if (!d || pkg === undefined)
 		return (
 			<Loader2
 				className="size-5 animate-spin text-muted-foreground"
 				aria-label="Cargando"
 			/>
 		);
+	const pkgEvents = pkg ? pkgLogToEvents(pkg.log, pkg, video) : [];
+	const log = [...pkgEvents, ...d.log];
+	const status = pkgActive ? "working" : d.status;
 	return (
 		<div className="grid gap-2">
-			{d.status === "working" && (
+			{pkg && (
+				<div className="flex items-center gap-2 rounded-lg border border-violet-400/40 bg-violet-400/5 px-3 py-2 text-sm">
+					<Bot className="size-4 shrink-0 text-violet-300" aria-hidden />
+					<span className="min-w-0 flex-1">
+						<span className="font-medium text-violet-200">
+							Pipeline automático de Grokbot
+						</span>
+						{pkgActive && (
+							<>
+								{" · "}
+								<Loader2 className="inline size-3 animate-spin" aria-hidden />{" "}
+								{pkgStepText(pkg)} ({Math.round(pkg.progress * 100)}%)
+							</>
+						)}
+						{pkg.state === "done" && " · listo"}
+						{pkg.state === "error" &&
+							` · ${pkg.error || "se detuvo con un error"}`}
+					</span>
+				</div>
+			)}
+			{!pkgActive && d.status === "working" && (
 				<div className="flex items-center justify-between gap-2 rounded-lg border border-sky-400/40 px-3 py-2 text-sm">
 					<span className="inline-flex items-center gap-2">
 						<Loader2 className="size-4 animate-spin text-sky-300" aria-hidden />
@@ -541,10 +581,15 @@ export function VideoChat({
 			<Activity
 				project={project}
 				video={video}
-				log={d.log}
-				status={d.status}
+				log={log}
+				status={status}
 				onSent={load}
 				className="h-[calc(100dvh-15rem)] lg:static"
+				placeholder={
+					pkgActive
+						? "El pipeline automático de Grokbot está trabajando…"
+						: undefined
+				}
 				empty="Pide cualquier cambio a este video (textos, escenas, colores, ritmo, voz…). Claude lo edita, revisa las vistas previas y vuelve a renderizar."
 			/>
 		</div>
