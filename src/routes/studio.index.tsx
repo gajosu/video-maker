@@ -19,6 +19,7 @@ const STYLES: [string, string][] = [
 	["vox", "Explainer tipo Vox"],
 	["anthem", "Manifiesto / brand film"],
 	["dev", "Dev tools"],
+	["ugc", "UGC (personajes, contenido realista)"],
 ];
 const MUSIC: [string, string][] = [
 	["", "Automática (según el estilo)"],

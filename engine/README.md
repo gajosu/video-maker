@@ -173,6 +173,21 @@ Manifesto / brand films: one accent color, giant uppercase type, documentary foo
 | `vhs(t, html, {amount, osd: {mode: 'PLAY'\|'REC'\|…, clock, label}, heavy, tear, seed})` | wraps any layer in a worn VHS tape: RGB split, scanlines, rolling tracking band that tears the picture, head-switching noise, jitter, lifted blacks, VCR on-screen text (VT323). Good for "the past" vs a clean present, or a camcorder REC for "day one" |
 | `strike` / `flashAt` / `strobe` / `shake` / `black` / `marquee` / `subtitle` | red strike bar, flash and strobe frames at any time, camera shake, black frames, outlined text band, documentary subtitle for `o.caps` |
 
+### ugc: `UGC.*` (project body font, music `beat`)
+User-generated content: realistic character-on-camera videos (creator/testimonial style). Sells "shot on a phone", not cinema.
+| | |
+|---|---|
+| `face(name, lt, {x, y, w, h, pos, fit, dark, grad, jitter})` | full-bleed talking-head shot (image or video asset): continuous handheld breathing sway, never a directional push |
+| `bg(t, {tone: 'dark'\|'light'})` | soft blurred brand wash for beats with no footage yet (intro card, CTA end card) |
+| `statusbar(t, {time, dark})` | fake phone status bar (time + signal/battery) — sells "this is a phone screen" |
+| `storyBar(lt, dur, n, active)` | Stories/Reels-style segmented progress bar; segment `active` fills over `dur` |
+| `record(t, {x, y, label})` | pulsing "● REC 0:14" badge (raw-footage signal); `label` overrides the clock |
+| `caption(lt, c)` | bold native caption for `o.caps`: heavy black stroke, `hl` word gets a brand box |
+| `bubble(lt, at, text, {x, y, side: 'me'\|'them', w})` | chat/DM bubble, for "reacting to a comment" formats |
+| `reactionBurst(lt, at, emoji, {x, y, n, spread, size})` | floating reaction emoji rising and fading (double-tap-to-like feel) |
+| `handTap(lt, at, {x, y, d})` | tap ripple, for "look here" / CTA moments |
+| `swipeUp(lt, at, {label, y})` | bouncing chevron + "swipe up" / "link in bio" CTA |
+
 ## Audio
 
 The mix (`cli/lib/audio.ts`, `bun vk mix`) = music bed + SFX events + voice, music ducked under the voice, loudness-normalized on render.

@@ -18,6 +18,7 @@ if the idea needs a fact that is missing, ask or run the vk-learn skill first.
 | `vox` | explaining why something happens, data, history, "what is X" | a question hook, evidence with a source, then the answer; every fact cited in knowledge |
 | `anthem` | manifestos, brand films, launches that sell a belief (a movement, a community) | slower, with weight; second person; problem → identity → transformation → "you're already part of it" → call; pauses ("...") are part of the drama |
 | `dev` | software audiences: dev tools, launches for developers, "we changed X" framed as code | dry, precise; the joke is the format (a PR, a diff, a failing check), one change per line |
+| `ugc` | creator/testimonial-style, a character talking to camera, reviews, "here's why I switched to X" | first person, casual and unscripted-sounding, direct address ("you"), short sentences a real person would actually say out loud |
 
 ## Shape (15–35 s, 4–9 lines)
 1. **Hook** (≤1.5 s spoken): a question or a "that's me" claim in the audience's own words. No brand name first.
@@ -47,7 +48,7 @@ Create the folder with `bun vk new <p> <v> --title "..."` if needed.
 ```md
 ---
 title: Human title
-style: punchy           # punchy | motion | story | vox | dev (default: project format.style)
+style: punchy           # punchy | motion | story | vox | dev | anthem | ugc (default: project format.style)
 theme: light            # optional; overrides project format.theme
 music: true             # optional: true (style preset) | beat | pulse | ambient | pluck | none | <music asset name>
 voice: <voiceId>        # optional: ElevenLabs voice for this video (pick with the user; see vk-make step 2)

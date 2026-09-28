@@ -1,6 +1,6 @@
 ---
 name: vk-make
-description: Make a complete vertical video end to end with video-kit in any style (punchy, motion graphics, storytelling, Vox-style explainer, dev tools): idea → script → ElevenLabs voice → assets → animated scenes → visual review → final MP4, for a given project ("make a video for Fonealo about the loyalty cards", "new Hyppe reel about X", "render it"). Orchestrates the vk-script, vk-assets, vk-scenes and vk-learn skills.
+description: Make a complete vertical video end to end with video-kit in any style (punchy, motion graphics, storytelling, Vox-style explainer, dev tools, UGC/creator-testimonial): idea → script → ElevenLabs voice → assets → animated scenes → visual review → final MP4, for a given project ("make a video for Fonealo about the loyalty cards", "new Hyppe reel about X", "render it"). Orchestrates the vk-script, vk-assets, vk-scenes and vk-learn skills.
 ---
 
 # vk-make: idea to MP4

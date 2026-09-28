@@ -17,7 +17,7 @@ import {
 	saveJob,
 } from "./studio-runner.ts";
 
-const STYLES = ["punchy", "motion", "story", "vox", "anthem", "dev"];
+const STYLES = ["punchy", "motion", "story", "vox", "anthem", "dev", "ugc"];
 const SLUG = /^[\w-]+$/;
 const obj = (d: unknown) => (d ?? {}) as Record<string, unknown>;
 const text = (x: unknown, max: number) =>

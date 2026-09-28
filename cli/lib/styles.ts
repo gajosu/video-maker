@@ -40,6 +40,12 @@ export const STYLES = {
 		fonts: ["vt323/400"],
 		music: "ambient" as MusicPreset,
 	},
+	ugc: {
+		label: "UGC (personajes, contenido realista)",
+		about: "User-generated content: handheld talking-head footage (subtle breathing sway, no cinematic push), native app chrome (status bar, Stories progress, REC badge), bold native captions with a heavy stroke, chat bubbles, floating reactions, swipe-up CTA. For creator/testimonial-style videos with a real or avatar character on camera.",
+		fonts: [] as string[],
+		music: "beat" as MusicPreset,
+	},
 } as const;
 
 export type StyleName = keyof typeof STYLES;
