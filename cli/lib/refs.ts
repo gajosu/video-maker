@@ -89,7 +89,7 @@ function viaYtDlp(url: string, dir: string, maxSeconds: number): Omit<RefMeta, "
 		[
 			"--no-playlist", "--no-progress", "--js-runtimes", "bun",
 			"-f", "bv*[height<=1920]+ba/b", "--merge-output-format", "mp4",
-			"--match-filter", `duration < ${maxSeconds}`, "--max-filesize", "400M",
+			"--match-filter", `duration <? ${maxSeconds}`, "--max-filesize", "400M",
 			"--write-info-json", "-o", join(dir, "video.%(ext)s"),
 			...extra, "--", url,
 		],
