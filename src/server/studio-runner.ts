@@ -24,6 +24,8 @@ export type Job = {
 	idea: string;
 	duration: number;
 	style: string;
+	/** if set, the project's canvas orientation was (re)applied when this job started */
+	orientation?: "vertical" | "horizontal";
 	status: JobStatus;
 	phase: Phase;
 	session?: string;

@@ -58,7 +58,7 @@ const DEV=(()=>{
       `<div class="abs" style="inset:0;background:radial-gradient(120% 90% at 50% 45%,transparent 55%,rgba(0,0,0,.55))"></div>`;
   }
   // window chrome (editor / terminal / browser). lt+at make it pop in.
-  function win(inner,{x=60,y=400,w=W-120,h=null,title='',lt=null,at=0,pad=38,style=''}={}){
+  function win(inner,{x=60,y=H*.208,w=W-120,h=null,title='',lt=null,at=0,pad=38,style=''}={}){
     const e=lt==null?'':enter(lt,at);
     return `<div class="abs dv-win" style="left:${x}px;top:${y}px;width:${w}px;${h?`height:${h}px;`:''}${e}transform-origin:center top;${style}">
       <div class="dv-bar"><i></i><i></i><i></i><span>${esc(title)}</span></div><div style="padding:${pad}px">${inner}</div></div>`;
@@ -121,7 +121,7 @@ const DEV=(()=>{
   };
   const spinner=(lt,c='#d29922')=>`<svg width="1em" height="1em" viewBox="0 0 24 24" style="transform:rotate(${lt*420}deg)"><circle cx="12" cy="12" r="9" fill="none" stroke="${mix(c,25)}" stroke-width="3.2"/><path d="M12 3a9 9 0 0 1 9 9" fill="none" stroke="${c}" stroke-width="3.2" stroke-linecap="round"/></svg>`;
   // pull request header. state flips to merged at mergeAt
-  function pr(lt,at,{num=1,title='',branch='fix/main',base='main',author='you',add=0,del=0,mergeAt=null,x=60,y=300,w=W-120,size=58}={}){
+  function pr(lt,at,{num=1,title='',branch='fix/main',base='main',author='you',add=0,del=0,mergeAt=null,x=60,y=H*.156,w=W-120,size=58}={}){
     if(lt<at) return '';
     const merged=mergeAt!=null&&lt>=mergeAt, p=merged?pop(lt,mergeAt,.3):1;
     const pill=merged?`<span class="dv-pill" style="font-size:${size*.55}px;background:var(--brand);transform:scale(${p})">${ICON.merge('#fff')} Merged</span>`:`<span class="dv-pill" style="font-size:${size*.55}px;background:#238636">${ICON.pr('#fff')} Open</span>`;
@@ -145,7 +145,7 @@ const DEV=(()=>{
   }
   const checksEnd=(at,n,{stagger=.3,d=.5}={})=>at+(n-1)*stagger+d+.15;
   // reaction chips: items = [{k:'LGTM', icon:'html', n:12}]; hot = {index: time} fills a chip with brand at that time
-  function chips(lt,at,items,{x=60,y=800,w=W-120,size=40,stagger=.12,gap=22,hot={},align='center'}={}){
+  function chips(lt,at,items,{x=60,y=H*.417,w=W-120,size=40,stagger=.12,gap=22,hot={},align='center'}={}){
     const html=items.map((it,i)=>{
       const t0=it.at??at+i*stagger; if(lt<t0) return '';
       const p=pop(lt,t0,.26), h=hot[i]!=null&&lt>=hot[i]?pop(lt,hot[i],.3):0;
@@ -155,7 +155,7 @@ const DEV=(()=>{
     return `<div class="abs" style="left:${x}px;top:${y}px;width:${w}px;display:flex;flex-wrap:wrap;gap:${gap}px;justify-content:${align==='center'?'center':'flex-start'}">${html}</div>`;
   }
   // rubber stamp that slams in (with a small shake)
-  function stamp(lt,at,text,{x=W/2,y=900,rot=-9,color='var(--red)',size=150,d=.16}={}){
+  function stamp(lt,at,text,{x=W/2,y=H*.469,rot=-9,color='var(--red)',size=150,d=.16}={}){
     if(lt<at) return '';
     const k=eo(lin(lt,at,at+d)), s=2.3-1.3*k, sh=lt<at+d+.25?Math.sin(lt*90)*10*(1-lin(lt,at+d,at+d+.25)):0;
     return `<div class="abs dv-d" style="left:${x}px;top:${y}px;transform:translate(-50%,-50%) translate(${sh}px,${sh*.6}px) rotate(${rot}deg) scale(${s});opacity:${clamp(k*3)};font-size:${size}px;font-weight:700;line-height:1;letter-spacing:.02em;text-transform:uppercase;color:${color};border:${size*.07}px solid ${color};border-radius:${size*.14}px;padding:${size*.12}px ${size*.22}px ${size*.08}px;white-space:nowrap;background:${mix('var(--ink)',55)};-webkit-mask-image:repeating-linear-gradient(${rot+70}deg,#000 0 7px,rgba(0,0,0,.78) 7px 9px)">${esc(text)}</div>`;
@@ -176,7 +176,7 @@ const DEV=(()=>{
     return `filter:drop-shadow(${a}px 0 0 rgba(255,40,70,.85)) drop-shadow(${-a}px 0 0 rgba(0,220,255,.75));transform:translateX(${j}px);`;
   }
   // typed headline in the display font. hl = word indexes on a brand selection block
-  function type(lt,at,text,{x=70,y=300,w=W-140,size=110,cps=34,hl=[],align='left',color='#fff',hlColor='var(--brand)',weight=600,lh=1.04,caretOn=true,until=null}={}){
+  function type(lt,at,text,{x=70,y=H*.156,w=W-140,size=110,cps=34,hl=[],align='left',color='#fff',hlColor='var(--brand)',weight=600,lh=1.04,caretOn=true,until=null}={}){
     if(lt<at) return '';
     const n=Math.floor((lt-at)*cps), typing=n<text.length;
     const cr=caretOn&&(typing||until==null||lt<until)?caret(lt,typing):'';
@@ -194,13 +194,13 @@ const DEV=(()=>{
     return `<div class="abs dv-d" style="left:${x}px;top:${y}px;width:${w}px;font-size:${size}px;font-weight:${weight};line-height:${lh};letter-spacing:-.025em;text-align:${align};color:${color};opacity:${op};text-shadow:0 6px 30px rgba(0,0,0,.45)">${words}${typing?'':cr}</div>`;
   }
   // spoken-line caption that types in fast. Use: o.caps.map(c=>DEV.caption(lt,c))
-  function caption(lt,c,{y=1360,size=82,align='center',x=70,w=W-140}={}){
+  function caption(lt,c,{y=H*.708,size=82,align='center',x=70,w=W-140}={}){
     const [s,e,text,o]=c; if(lt<s||lt>=e) return '';
     const cps=Math.max(38,text.length/Math.max(.25,(e-s)*.45));
-    return type(lt,s,text,{x,y:o.y&&o.y!==1400?o.y:y,w,size:o.size&&o.size!==84?o.size:size,cps,hl:o.hl,align,until:e-.12,caretOn:true});
+    return type(lt,s,text,{x,y:o.y&&o.y!==H*.729?o.y:y,w,size:o.size&&o.size!==84?o.size:size,cps,hl:o.hl,align,until:e-.12,caretOn:true});
   }
   // small mono label, e.g. a `// comment` or a file path
-  function label(lt,at,text,{x=70,y=200,size=32,color='var(--mut)',align='left',w=W-140}={}){
+  function label(lt,at,text,{x=70,y=H*.104,size=32,color='var(--mut)',align='left',w=W-140}={}){
     if(lt<at) return '';
     return `<div class="abs dv" style="left:${x}px;top:${y}px;width:${w}px;text-align:${align};font-size:${size}px;color:${color};opacity:${fade(lt,at,at+.2)}">${esc(typed(lt,at,text,60))}</div>`;
   }

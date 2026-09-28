@@ -111,7 +111,17 @@ export const createProject = createServerFn({ method: "POST" })
 		const description = String(o.description ?? "")
 			.trim()
 			.slice(0, 300);
-		return { slug, name, primary, secondary, language, description };
+		const orientation =
+			o.orientation === "horizontal" ? "horizontal" : "vertical";
+		return {
+			slug,
+			name,
+			primary,
+			secondary,
+			language,
+			description,
+			orientation,
+		};
 	})
 	.handler(async ({ data }) => {
 		const dst = projectDir(data.slug);
@@ -130,6 +140,13 @@ export const createProject = createServerFn({ method: "POST" })
 		pj.brand.secondary = data.secondary;
 		pj.language = data.language;
 		pj.description = data.description;
+		if (data.orientation === "horizontal") {
+			pj.format.width = 1920;
+			pj.format.height = 1080;
+		} else {
+			pj.format.width = 1080;
+			pj.format.height = 1920;
+		}
 		pj.voice.voiceId = "";
 		writeFileSync(
 			join(dst, "project.json"),

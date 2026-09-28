@@ -19,7 +19,7 @@ function build(L,D){
       parts.forEach((p,j)=>{
         const f0=p.f?p.f[0]:j/parts.length, f1=p.f?p.f[1]:(j+1)/parts.length;
         const cs=s+(e-s)*f0, ce=j===parts.length-1?Math.min(e+.35,nxt-.02,b-a):s+(e-s)*f1;
-        if(!LINES[k].nocap) caps.push([Math.max(0,cs-.05),ce,p.t,{y:p.y||opts.capY||1400,hl:p.hl||[],size:p.size||opts.capSize||84,red:p.red||[]}]);
+        if(!LINES[k].nocap) caps.push([Math.max(0,cs-.05),ce,p.t,{y:p.y||opts.capY||H*.729,hl:p.hl||[],size:p.size||opts.capSize||84,red:p.red||[]}]);
       });
     }
     const M={};for(const [k,v] of Object.entries(window.MK||{})) M[k]=v-a;

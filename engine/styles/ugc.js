@@ -51,10 +51,10 @@ const UGC=(()=>{
       return `<div style="flex:1;height:6px;border-radius:999px;background:rgba(255,255,255,.35);overflow:hidden">
         <div style="height:100%;width:${p*100}%;background:#fff;border-radius:999px"></div></div>`;
     }).join('');
-    return `<div class="abs" style="left:24px;right:24px;top:126px;display:flex;gap:8px">${segs}</div>`;
+    return `<div class="abs" style="left:24px;right:24px;top:${H*.066}px;display:flex;gap:8px">${segs}</div>`;
   }
   // pulsing "● REC 00:14" badge, top-right — raw-footage signal
-  function record(t,{x=W-220,y=150,label}={}){
+  function record(t,{x=W-220,y=H*.078,label}={}){
     const on=Math.sin(t*6)>-.3;
     const m=Math.floor(t/60), s=Math.floor(t%60);
     const clock=label??`${m}:${String(s).padStart(2,'0')}`;
@@ -63,7 +63,7 @@ const UGC=(()=>{
 
   // ---- caption ----
   // bold native-style caption for o.caps: heavy stroke, one word gets a brand box (hl)
-  function caption(lt,c,{y=1460,size=78}={}){
+  function caption(lt,c,{y=H*.760,size=78}={}){
     const [s,e,text,o]=c; if(lt<s||lt>=e) return '';
     const hl=(o&&o.hl)||[];
     const words=text.split(' ').map((word,i)=>{
@@ -76,14 +76,14 @@ const UGC=(()=>{
 
   // ---- reacting to people ----
   // chat/DM bubble. side: 'me' | 'them'
-  function bubble(lt,at,text,{x=90,y=900,side='them',w=640}={}){
+  function bubble(lt,at,text,{x=90,y=H*.469,side='them',w=640}={}){
     if(lt<at) return '';
     const p=pop(lt,at,.22);
     const align=side==='me'?'right':'left';
     return `<div class="ugc-bubble ${side}" style="left:${x}px;top:${y}px;max-width:${w}px;transform-origin:${align} center;transform:scale(${.5+.5*p});opacity:${clamp(p*3)}">${esc(text)}</div>`;
   }
   // floating reaction emoji burst, rising and fading (double-tap-to-like feel)
-  function reactionBurst(lt,at,emoji='❤️',{x=W/2,y=1300,n=5,spread=140,size=64}={}){
+  function reactionBurst(lt,at,emoji='❤️',{x=W/2,y=H*.677,n=5,spread=140,size=64}={}){
     if(lt<at) return '';
     let out='';
     for(let i=0;i<n;i++){
@@ -104,7 +104,7 @@ const UGC=(()=>{
     return `<div class="abs" style="left:${x}px;top:${y}px;width:${140*(.3+k)}px;height:${140*(.3+k)}px;margin:-${70*(.3+k)}px 0 0 -${70*(.3+k)}px;border-radius:50%;border:6px solid #fff;opacity:${1-k}"></div>`;
   }
   // bouncing "swipe up" / "link in bio" CTA
-  function swipeUp(lt,at,{label='Desliza hacia arriba',y=1660}={}){
+  function swipeUp(lt,at,{label='Desliza hacia arriba',y=H*.865}={}){
     if(lt<at) return '';
     const p=pop(lt,at,.3), bounce=Math.abs(Math.sin(lt*3.2))*14;
     return `<div class="abs" style="left:0;right:0;top:${y-bounce}px;text-align:center;opacity:${clamp(p*3)};transform:scale(${.6+.4*p})">

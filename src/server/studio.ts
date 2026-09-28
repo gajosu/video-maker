@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { createServerFn } from "@tanstack/react-start";
 import { loadManifest } from "../../cli/lib/assets.ts";
@@ -98,6 +98,8 @@ export const getStudio = createServerFn({ method: "GET" }).handler(async () => {
 		slug: p.slug,
 		name: p.name,
 		style: p.format.style,
+		width: p.format.width,
+		height: p.format.height,
 	}));
 	const jobs = listJobs(projects.map((p) => p.slug)).map((j) => ({
 		project: j.project,
@@ -184,6 +186,13 @@ export const startJob = createServerFn({ method: "POST" })
 			Math.min(90, Math.round(Number(o.duration) || 30)),
 		);
 		const style = STYLES.includes(String(o.style)) ? String(o.style) : "punchy";
+		const orientationRaw = o.orientation;
+		const orientation: "vertical" | "horizontal" | undefined =
+			orientationRaw === "horizontal"
+				? "horizontal"
+				: orientationRaw === "vertical"
+					? "vertical"
+					: undefined;
 		const voice = text(o.voice, 200);
 		if (!VOICE(voice))
 			throw new Error(
@@ -211,6 +220,7 @@ export const startJob = createServerFn({ method: "POST" })
 			idea,
 			duration,
 			style,
+			orientation,
 			voice: voice || undefined,
 			assets,
 			flow,
@@ -220,6 +230,18 @@ export const startJob = createServerFn({ method: "POST" })
 	})
 	.handler(async ({ data }) => {
 		busy();
+		if (data.orientation) {
+			const f = join(projectDir(data.project), "project.json");
+			const pj = JSON.parse(readFileSync(f, "utf8"));
+			if (data.orientation === "horizontal") {
+				pj.format.width = 1920;
+				pj.format.height = 1080;
+			} else {
+				pj.format.width = 1080;
+				pj.format.height = 1920;
+			}
+			writeFileSync(f, `${JSON.stringify(pj, null, 2)}\n`);
+		}
 		const video = slugify(data.title, data.project);
 		const now = Date.now();
 		const job: Job = {

@@ -20,7 +20,7 @@ const esc=s=>String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;');
 const mix=(c,pct,other='transparent')=>`color-mix(in srgb,${c} ${pct}%,${other})`;
 
 // kinetic caption: words pop in one by one. hl = highlighted word indices, red = wavy-underlined
-function caption(t,start,end,text,{y=1330,hl=[],size=86,red=[]}={}){
+function caption(t,start,end,text,{y=H*.693,hl=[],size=86,red=[]}={}){
   if(t<start||t>=end) return '';
   const words=text.split(' ');
   const out=Math.min(1,lin(t,end-.12,end));
@@ -33,7 +33,7 @@ function caption(t,start,end,text,{y=1330,hl=[],size=86,red=[]}={}){
     return `<span class="${cls}" style="${style}">${esc(w)}</span>`}).join(' ');
   return `<div class="cap" style="top:${y}px;font-size:${size}px;opacity:${1-out}">${html}</div>`;
 }
-function sticker(t,at,text,{x=W/2,y=200,rot=-4,bg='#fff',fg='var(--ink)',size=62,until=99}={}){
+function sticker(t,at,text,{x=W/2,y=H*.104,rot=-4,bg='#fff',fg='var(--ink)',size=62,until=99}={}){
   if(t<at||t>until) return '';
   const p=pop(t,at,.25);
   return `<div class="sticker" style="left:${x}px;top:${y}px;background:${bg};color:${fg};font-size:${size}px;transform:translate(-50%,0) rotate(${rot}deg) scale(${.3+.7*p});opacity:${clamp(p*3)}">${text}</div>`;
@@ -56,7 +56,7 @@ function comment(t,c){
    <div><div class="cu">${c.u} · ${STR.now}</div><div class="ct">${c.text}</div>${chip}</div></div>`;
 }
 // phone mock with a post + comment list. Post copy defaults to VK.strings.phone.
-function phone(t,{top=330,comments=[],extra='',scale=1,rule=false,height=1080,thumb=STR.phone.thumb,text=STR.phone.text}={}){
+function phone(t,{top=H*.172,comments=[],extra='',scale=1,rule=false,height=1080,thumb=STR.phone.thumb,text=STR.phone.text}={}){
   const list=comments.map(c=>comment(t,c)).join('');
   return `<div class="phone" style="top:${top}px;height:${height}px;transform:scale(${scale});transform-origin:center top">
    <div class="post"><div class="thumb">${thumb}</div><div class="ptext">${text}</div></div>
@@ -112,7 +112,7 @@ function kenburns(name,lt,dur,{from=[1.06,0,0],to=[1.18,-2,-3],x=0,y=0,w=W,h=H,p
   return `<div class="abs" style="left:${x}px;top:${y}px;width:${w}px;height:${h}px;overflow:hidden;${style}"><img src="${asset(name)}" style="width:100%;height:100%;object-fit:cover;object-position:${pos};transform:scale(${s}) translate(${tx}%,${ty}%)"></div>`;
 }
 // generic phone frame (no brand logos). inner = HTML for the screen. Height = w * 2.1667 (19.5:9).
-function device(inner,{x=W/2,y=240,w=640,rot=0,scale=1,frame='#111',shadow=true,island=true}={}){
+function device(inner,{x=W/2,y=H*.125,w=640,rot=0,scale=1,frame='#111',shadow=true,island=true}={}){
   const h=Math.round(w*2.1667), b=Math.round(w*.035), r=Math.round(w*.14);
   return `<div class="abs" style="left:${x-w/2}px;top:${y}px;width:${w}px;height:${h}px;border-radius:${r}px;background:${frame};padding:${b}px;transform:rotate(${rot}deg) scale(${scale});transform-origin:center top;${shadow?'box-shadow:0 50px 120px rgba(0,0,0,.35),0 0 0 2px rgba(255,255,255,.06) inset':''}">
    <div style="position:relative;width:100%;height:100%;border-radius:${r-b}px;overflow:hidden;background:#fff">${inner}

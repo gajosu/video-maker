@@ -44,6 +44,9 @@ function Studio() {
 	const [title, setTitle] = useState("");
 	const [style, setStyle] = useState("punchy");
 	const [duration, setDuration] = useState(30);
+	const [orientation, setOrientation] = useState<"vertical" | "horizontal">(
+		"vertical",
+	);
 	const [idea, setIdea] = useState("");
 	const [voice, setVoice] = useState("");
 	const [libVoice, setLibVoice] = useState("");
@@ -74,6 +77,8 @@ function Studio() {
 	useEffect(() => {
 		setPicked([]);
 		setRefs([]);
+		const p = projects.find((x) => x.slug === project);
+		setOrientation(p && p.height < p.width ? "horizontal" : "vertical");
 	}, [project]);
 
 	const upload = async (files: FileList | null) => {
@@ -110,6 +115,7 @@ function Studio() {
 					title,
 					style,
 					duration,
+					orientation,
 					idea,
 					voice: libId || voice,
 					music,
@@ -190,6 +196,22 @@ function Studio() {
 									</option>
 								))}
 							</select>
+						</label>
+						<label className="grid gap-1.5 text-sm font-medium">
+							Formato
+							<select
+								className={field}
+								value={orientation}
+								onChange={(e) =>
+									setOrientation(e.target.value as "vertical" | "horizontal")
+								}
+							>
+								<option value="vertical">Vertical · 1080×1920</option>
+								<option value="horizontal">Horizontal · 1920×1080</option>
+							</select>
+							<span className="text-xs text-muted-foreground">
+								Es del proyecto entero: cambia también sus otros videos.
+							</span>
 						</label>
 					</div>
 					<label className="grid gap-1.5 text-sm font-medium">

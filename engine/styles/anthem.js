@@ -35,7 +35,7 @@ const ANTHEM=(()=>{
   }
   // giant uppercase words that slam in one by one (scale down from `from`, blur to sharp).
   // lines: string with '\n' for line breaks. red = word indexes in the brand color. out = time to fade.
-  function slam(lt,at,lines,{x=64,y=600,w=W-128,size=150,align='left',color='#fff',red=[],stagger=.13,d=.16,from=1.7,out=null,ghost=false,times=null}={}){
+  function slam(lt,at,lines,{x=64,y=H*.313,w=W-128,size=150,align='left',color='#fff',red=[],stagger=.13,d=.16,from=1.7,out=null,ghost=false,times=null}={}){
     if(lt<at-.01) return '';
     let i=0;
     const html=lines.split('\n').map(line=>line.split(' ').map(word=>{
@@ -49,7 +49,7 @@ const ANTHEM=(()=>{
     return `<div class="abs an" style="left:${x}px;top:${y}px;width:${w}px;font-size:${size}px;text-align:${align};opacity:${op}">${html}</div>`;
   }
   // hacker-style decode: glyphs resolve left to right over d seconds
-  function scramble(lt,at,text,{x=64,y=600,w=W-128,size=110,d=.7,color='#fff',align='left',cls='an',out=null,style=''}={}){
+  function scramble(lt,at,text,{x=64,y=H*.313,w=W-128,size=110,d=.7,color='#fff',align='left',cls='an',out=null,style=''}={}){
     if(lt<at) return '';
     const G='ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789#%&*';
     const n=text.length, k=lin(lt,at,at+d), tick=Math.floor(lt*28);
@@ -62,14 +62,14 @@ const ANTHEM=(()=>{
     return `<div class="abs ${cls}" style="left:${x}px;top:${y}px;width:${w}px;font-size:${size}px;text-align:${align};color:${color};opacity:${op};${style}">${s}</div>`;
   }
   // wide-tracked label with a red rule that draws first (site kicker style)
-  function label(lt,at,text,{x=64,y=300,size=30,color='rgba(255,255,255,.62)',rule=70,w=W-128,align='left'}={}){
+  function label(lt,at,text,{x=64,y=H*.156,size=30,color='rgba(255,255,255,.62)',rule=70,w=W-128,align='left'}={}){
     if(lt<at) return '';
     const k=expo(lin(lt,at,at+.4)), n=Math.floor(lin(lt,at+.2,at+.2+text.length/38)*text.length);
     const r=rule?`<span style="display:inline-block;width:${rule*k}px;height:3px;background:var(--brand);vertical-align:.32em;margin-right:${rule?24:0}px"></span>`:'';
     return `<div class="abs an-lab" style="left:${x}px;top:${y}px;width:${w}px;font-size:${size}px;color:${color};text-align:${align}">${r}${esc(text.slice(0,n))}</div>`;
   }
   // red bar that swipes across (strike-through, underline) from the left
-  function strike(lt,at,{x=64,y=700,w=600,h=16,d=.28,color='var(--brand)',rot=-2}={}){
+  function strike(lt,at,{x=64,y=H*.365,w=600,h=16,d=.28,color='var(--brand)',rot=-2}={}){
     if(lt<at) return '';
     const k=expo(lin(lt,at,at+d));
     return `<div class="abs" style="left:${x}px;top:${y}px;width:${w*k}px;height:${h}px;background:${color};transform:rotate(${rot}deg);transform-origin:left center;box-shadow:0 0 30px ${mix(color,60)}"></div>`;
@@ -94,7 +94,7 @@ const ANTHEM=(()=>{
     return `<div class="abs" style="inset:0;background:#000;opacity:${lt>b?1-lin(lt,b,b+f):1}"></div>`;
   }
   // "DE <from>" gets struck, then "A <to>" slams in red
-  function fromTo(lt,at,from,to,{y=560,size=128,swap=null,x=64}={}){
+  function fromTo(lt,at,from,to,{y=H*.292,size=128,swap=null,x=64}={}){
     if(lt<at) return '';
     const sw=swap??at+.9;
     let h=label(lt,at,'de',{x,y:y-70,rule:0,size:34,color:'rgba(255,255,255,.5)'});
@@ -109,21 +109,21 @@ const ANTHEM=(()=>{
     return h;
   }
   // endless band of uppercase text (outline or solid)
-  function marquee(t,text,{y=1500,size=150,speed=180,color='rgba(255,255,255,.14)',outline=true,rot=0,dir=-1}={}){
+  function marquee(t,text,{y=H*.781,size=150,speed=180,color='rgba(255,255,255,.14)',outline=true,rot=0,dir=-1}={}){
     const unit=`${esc(text)} &nbsp;•&nbsp; `, span=size*text.length*.62+size;
     const off=((t*speed)%span)*dir;
     const st=outline?`color:transparent;-webkit-text-stroke:2px ${color}`:`color:${color}`;
     return `<div class="abs an" style="left:0;top:${y}px;white-space:nowrap;font-size:${size}px;${st};transform:rotate(${rot}deg) translateX(${off-span}px)">${unit.repeat(6)}</div>`;
   }
   // documentary subtitle for o.caps: words rise in, hl words in red. Use: o.caps.map(c=>ANTHEM.subtitle(lt,c))
-  function subtitle(lt,c,{y=1440,size=54}={}){
+  function subtitle(lt,c,{y=H*.75,size=54}={}){
     const [s,e,text,o]=c; if(lt<s||lt>=e) return '';
     const out=1-lin(lt,e-.15,e);
     const html=text.split(' ').map((w,i)=>{
       const t0=s+i*.06, k=expo(lin(lt,t0,t0+.3));
       return `<span style="display:inline-block;opacity:${k};transform:translateY(${(1-k)*18}px);${o.hl.includes(i)?'color:var(--brand)':''}">${esc(w)}</span>`;
     }).join(' ');
-    return `<div class="abs an-sub" style="left:80px;right:80px;top:${o.y&&o.y!==1400?o.y:y}px;text-align:center;font-size:${o.size&&o.size!==84?o.size:size}px;color:#fff;opacity:${out}">${html}</div>`;
+    return `<div class="abs an-sub" style="left:80px;right:80px;top:${o.y&&o.y!==H*.729?o.y:y}px;text-align:center;font-size:${o.size&&o.size!==84?o.size:size}px;color:#fff;opacity:${out}">${html}</div>`;
   }
   // ---- old VHS tape ----
   // RGB channel split as SVG filters (CSS drop-shadow can't split an opaque layer)
@@ -156,9 +156,9 @@ const ANTHEM=(()=>{
     if(osd){
       const rec=osd.mode==='REC', blink=Math.floor(t*1.6)%2===0, c=osd.clock??t;
       const st='font-family:VT323,monospace;color:#f1f1f1;text-shadow:3px 0 rgba(255,0,60,.6),-2px 0 rgba(0,200,255,.5),0 0 12px rgba(255,255,255,.4)';
-      o+=`<div class="abs" style="left:70px;top:150px;font-size:76px;${st}">${rec?`<span style="color:#ff2a2a;opacity:${blink?1:0}">●</span> REC`:`${esc(osd.mode||'PLAY')}${(osd.mode||'PLAY')==='PLAY'?' ►':''}`}</div>`;
-      o+=`<div class="abs" style="left:70px;top:1640px;font-size:64px;${st}">SP &nbsp;${Math.floor(c/3600)}:${pad(c/60%60)}:${pad(c%60)}</div>`;
-      if(osd.label) o+=`<div class="abs" style="right:70px;top:1640px;font-size:64px;text-align:right;${st}">${esc(osd.label)}</div>`;
+      o+=`<div class="abs" style="left:70px;top:${H*.078}px;font-size:76px;${st}">${rec?`<span style="color:#ff2a2a;opacity:${blink?1:0}">●</span> REC`:`${esc(osd.mode||'PLAY')}${(osd.mode||'PLAY')==='PLAY'?' ►':''}`}</div>`;
+      o+=`<div class="abs" style="left:70px;top:${H*.854}px;font-size:64px;${st}">SP &nbsp;${Math.floor(c/3600)}:${pad(c/60%60)}:${pad(c%60)}</div>`;
+      if(osd.label) o+=`<div class="abs" style="right:70px;top:${H*.854}px;font-size:64px;text-align:right;${st}">${esc(osd.label)}</div>`;
     }
     return o;
   }

@@ -27,6 +27,9 @@ function NewProject() {
 	const [primary, setPrimary] = useState("#6366f1");
 	const [secondary, setSecondary] = useState("#22d3ee");
 	const [language, setLanguage] = useState("es");
+	const [orientation, setOrientation] = useState<"vertical" | "horizontal">(
+		"vertical",
+	);
 	const [description, setDescription] = useState("");
 	const [sending, setSending] = useState(false);
 	const [error, setError] = useState("");
@@ -42,7 +45,15 @@ function NewProject() {
 		setError("");
 		try {
 			const r = await createProject({
-				data: { slug, name, primary, secondary, language, description },
+				data: {
+					slug,
+					name,
+					primary,
+					secondary,
+					language,
+					description,
+					orientation,
+				},
 			});
 			await navigate({ to: "/p/$project/setup", params: { project: r.slug } });
 		} catch (err) {
@@ -128,17 +139,36 @@ function NewProject() {
 						</div>
 					</label>
 				</div>
-				<label className="grid gap-1.5 text-sm font-medium">
-					Idioma
-					<select
-						className={field}
-						value={language}
-						onChange={(e) => setLanguage(e.target.value)}
-					>
-						<option value="es">Español</option>
-						<option value="en">Inglés</option>
-					</select>
-				</label>
+				<div className="grid gap-4 sm:grid-cols-2">
+					<label className="grid gap-1.5 text-sm font-medium">
+						Idioma
+						<select
+							className={field}
+							value={language}
+							onChange={(e) => setLanguage(e.target.value)}
+						>
+							<option value="es">Español</option>
+							<option value="en">Inglés</option>
+						</select>
+					</label>
+					<label className="grid gap-1.5 text-sm font-medium">
+						Formato
+						<select
+							className={field}
+							value={orientation}
+							onChange={(e) =>
+								setOrientation(e.target.value as "vertical" | "horizontal")
+							}
+						>
+							<option value="vertical">
+								Vertical · 1080×1920 (Reels/TikTok)
+							</option>
+							<option value="horizontal">
+								Horizontal · 1920×1080 (YouTube)
+							</option>
+						</select>
+					</label>
+				</div>
 				<label className="grid gap-1.5 text-sm font-medium">
 					Descripción{" "}
 					<span className="font-normal text-muted-foreground">(opcional)</span>

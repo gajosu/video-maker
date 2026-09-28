@@ -26,7 +26,7 @@ const VOX=(()=>{
     return `<span style="${ink}background:linear-gradient(${color},${color}) no-repeat 0 88%/${k*100}% ${h*100}%;padding:0 .08em;box-decoration-break:clone;-webkit-box-decoration-break:clone">${text}</span>`;
   }
   // headline with mono kicker
-  function title(lt,at,text,{kicker='',x=90,y=300,w=W-180,size=112,color=INKC,align='left'}={}){
+  function title(lt,at,text,{kicker='',x=90,y=H*.156,w=W-180,size=112,color=INKC,align='left'}={}){
     if(lt<at) return '';
     const k=eo(lin(lt,at,at+.6)), k2=eo(lin(lt,at+.15,at+.8));
     return `<div class="abs" style="left:${x}px;top:${y}px;width:${w}px;text-align:${align};color:${color}">
@@ -34,7 +34,7 @@ const VOX=(()=>{
       <div class="vx-serif" style="margin-top:18px;font-size:${size}px;font-weight:900;line-height:1.02;letter-spacing:-.01em;opacity:${k2};transform:translateY(${(1-k2)*24}px)">${text}</div></div>`;
   }
   // newspaper clipping card. image = asset name (optional)
-  function clipping(lt,at,{headline='',source='',date='',body='',image:img=null,x=W/2,y=420,w=860,rot=-2.5}={}){
+  function clipping(lt,at,{headline='',source='',date='',body='',image:img=null,x=W/2,y=H*.219,w=860,rot=-2.5}={}){
     if(lt<at) return '';
     const p=pop(lt,at,.35), s=1.08-.08*eo(lin(lt,at,at+.35));
     const lines=body?`<div style="columns:2;column-gap:28px;font:400 25px/1.45 Georgia,serif;color:#4a463e;margin-top:22px;text-align:justify">${body}</div>`:'';
@@ -64,13 +64,13 @@ const VOX=(()=>{
     return `<svg class="abs" style="left:0;top:0;width:${W}px;height:${H}px;overflow:visible"><path d="M${x1} ${y1} Q${mx} ${my} ${x2} ${y2}" fill="none" stroke="${color}" stroke-width="${stroke}" stroke-linecap="round" stroke-dasharray="${len}" stroke-dashoffset="${len*(1-k)}"/><path d="M${hx1} ${hy1} L${x2} ${y2} L${hx2} ${hy2}" fill="none" stroke="${color}" stroke-width="${stroke}" stroke-linecap="round" stroke-linejoin="round" opacity="${hk}"/></svg>`;
   }
   // marker underline drawn left to right
-  function underline(lt,at,{x=90,y=700,w=500,color='var(--red)',d=.4,stroke=9}={}){
+  function underline(lt,at,{x=90,y=H*.365,w=500,color='var(--red)',d=.4,stroke=9}={}){
     if(lt<at) return '';
     const k=eo(lin(lt,at,at+d));
     return `<svg class="abs" style="left:0;top:0;width:${W}px;height:${H}px;overflow:visible"><path d="M${x} ${y} C${x+w*.3} ${y-8},${x+w*.6} ${y+10},${x+w} ${y-4}" fill="none" stroke="${color}" stroke-width="${stroke}" stroke-linecap="round" stroke-dasharray="${w*1.1}" stroke-dashoffset="${w*1.1*(1-k)}"/></svg>`;
   }
   // map-style pin with label
-  function pin(lt,at,{x=W/2,y=900,label='',color='var(--red)'}={}){
+  function pin(lt,at,{x=W/2,y=H*.469,label='',color='var(--red)'}={}){
     if(lt<at) return '';
     const p=pop(lt,at,.35), drop=(1-eo(lin(lt,at,at+.3)))*-120;
     const lp=pop(lt,at+.25,.3);
@@ -79,7 +79,7 @@ const VOX=(()=>{
       ${label?`<div class="abs vx-mono" style="${x>W*.6?`right:${W-x+48}px`:`left:${x+48}px`};top:${y-86}px;background:${INKC};color:#f2ede3;font-size:30px;font-weight:500;padding:10px 18px;letter-spacing:.06em;transform:scale(${.4+.6*lp});transform-origin:${x>W*.6?'right':'left'} center;opacity:${clamp(lp*3)}">${esc(label)}</div>`:''}`;
   }
   // horizontal timeline: items [{label, sub}], active index gets brand color
-  function timeline(lt,at,items,{y=980,x0=110,x1=W-110,stagger=.35,active=-1,color=INKC}={}){
+  function timeline(lt,at,items,{y=H*.510,x0=110,x1=W-110,stagger=.35,active=-1,color=INKC}={}){
     if(lt<at) return '';
     const k=eo(lin(lt,at,at+.6)), n=items.length, step=n>1?(x1-x0)/(n-1):0;
     let h=`<div class="abs" style="left:${x0}px;top:${y}px;width:${(x1-x0)*k}px;height:6px;background:${color};border-radius:3px"></div>`;
@@ -94,13 +94,13 @@ const VOX=(()=>{
     return h;
   }
   // zoom into an image region. from/to = [scale, cx, cy] (cx,cy = 0..1 focus point)
-  function zoom(name,lt,dur,{from=[1,.5,.5],to=[1.8,.5,.4],x=80,y=380,w=W-160,h=1000,rot=0,frame=true,gray=0}={}){
+  function zoom(name,lt,dur,{from=[1,.5,.5],to=[1.8,.5,.4],x=80,y=H*.198,w=W-160,h=H*.521,rot=0,frame=true,gray=0}={}){
     const k=eo(lin(lt,0,dur)), s=from[0]+(to[0]-from[0])*k, cx=from[1]+(to[1]-from[1])*k, cy=from[2]+(to[2]-from[2])*k;
     return `<div class="abs" style="left:${x}px;top:${y}px;width:${w}px;height:${h}px;overflow:hidden;transform:rotate(${rot}deg);${frame?'border:14px solid #fbf8f1;box-shadow:0 30px 60px rgba(40,30,10,.25);':''}">
       <img src="${asset(name)}" style="width:100%;height:100%;object-fit:cover;transform-origin:${cx*100}% ${cy*100}%;transform:scale(${s});filter:grayscale(${gray})"></div>`;
   }
   // typewritten annotation label
-  function label(lt,at,text,{x=90,y=200,rot=0,bg=INKC,fg='#f2ede3',size=32}={}){
+  function label(lt,at,text,{x=90,y=H*.104,rot=0,bg=INKC,fg='#f2ede3',size=32}={}){
     if(lt<at) return '';
     const n=Math.floor((lt-at)*28), shown=[...text].slice(0,n).join('');
     return `<div class="abs vx-mono" style="left:${x}px;top:${y}px;background:${bg};color:${fg};font-size:${size}px;font-weight:500;padding:10px 18px;letter-spacing:.05em;transform:rotate(${rot}deg)">${esc(shown)}&#8203;</div>`;
@@ -110,11 +110,11 @@ const VOX=(()=>{
     return `<div class="abs vx-mono" style="left:90px;right:180px;top:${y}px;font-size:24px;letter-spacing:.06em;color:${color}">SOURCE: ${esc(text)}</div>`;
   }
   // explainer caption (static, highlighted words get the marker). Use: o.caps.map(c=>VOX.caption(lt,c))
-  function caption(lt,c,{y=1380,size=62,color=INKC}={}){
+  function caption(lt,c,{y=H*.719,size=62,color=INKC}={}){
     const [s,e,text,o]=c; if(lt<s||lt>=e) return '';
     const op=Math.min(lin(lt,s,s+.15),1-lin(lt,e-.15,e));
     const html=text.split(' ').map((w,i)=>o.hl&&o.hl.includes(i)?mark(lt,s+.1+i*.06,esc(w)):esc(w)).join(' ');
-    return `<div class="vx-cap" style="top:${o.y&&o.y!==1400?o.y:y}px;font-size:${size}px;color:${color};opacity:${op}">${html}</div>`;
+    return `<div class="vx-cap" style="top:${o.y&&o.y!==H*.729?o.y:y}px;font-size:${size}px;color:${color};opacity:${op}">${html}</div>`;
   }
   return {paper,mark,title,clipping,circle,arrow,underline,pin,timeline,zoom,label,source,caption};
 })();

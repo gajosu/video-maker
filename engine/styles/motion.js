@@ -22,7 +22,7 @@ const MOTION=(()=>{
   }
   // masked word-by-word reveal (words slide up from behind a mask). by:'word'|'char'
   // out = time the text leaves (slides up out of the mask)
-  function words(lt,at,text,{x=90,y=600,w=W-180,size=150,weight=700,lh=.98,align='left',color='currentColor',hl=[],hlColor='var(--brand)',stagger=.06,d=.5,by='word',out=null,upper=false}={}){
+  function words(lt,at,text,{x=90,y=H*.313,w=W-180,size=150,weight=700,lh=.98,align='left',color='currentColor',hl=[],hlColor='var(--brand)',stagger=.06,d=.5,by='word',out=null,upper=false}={}){
     if(lt<at-.01) return '';
     const count=by==='char'?text.replace(/ /g,'').length:text.split(' ').length;
     // fully exited: render nothing (masked glyph descenders/accents would otherwise leave slivers)
@@ -44,7 +44,7 @@ const MOTION=(()=>{
     return `<div class="abs mo" style="left:${x}px;top:${y}px;width:${w}px;font-size:${size}px;font-weight:${weight};line-height:${lh};text-align:${align};${upper?'text-transform:uppercase;':''}">${html}</div>`;
   }
   // animated number. fmt: thousands separators, decimals
-  function counter(lt,at,to,{from=0,d=1.1,prefix='',suffix='',decimals=0,x=0,y=600,w=W,size=300,weight=700,align='center',color='currentColor',sufSize=.4}={}){
+  function counter(lt,at,to,{from=0,d=1.1,prefix='',suffix='',decimals=0,x=0,y=H*.313,w=W,size=300,weight=700,align='center',color='currentColor',sufSize=.4}={}){
     if(lt<at-.01) return '';
     const k=eo(lin(lt,at,at+d)), v=lerp(from,to,k);
     const n=v.toLocaleString('en-US',{minimumFractionDigits:decimals,maximumFractionDigits:decimals});
@@ -52,7 +52,7 @@ const MOTION=(()=>{
     return `<div class="abs mo" style="left:${x}px;top:${y}px;width:${w}px;text-align:${align};font-size:${size}px;font-weight:${weight};line-height:1;color:${color};transform:scale(${.6+.4*p});opacity:${clamp(p*3)}">${esc(prefix)}${n}<span style="font-size:${sufSize}em;letter-spacing:0">${esc(suffix)}</span></div>`;
   }
   // horizontal bar chart that grows in. rows: [{label, value, color?}]
-  function bars(lt,at,rows,{x=90,y=520,w=W-180,rowH=120,gap=46,max=null,suffix='',stagger=.14,d=.8,labelSize=40,color='var(--brand)',track='rgba(127,127,127,.15)'}={}){
+  function bars(lt,at,rows,{x=90,y=H*.271,w=W-180,rowH=120,gap=46,max=null,suffix='',stagger=.14,d=.8,labelSize=40,color='var(--brand)',track='rgba(127,127,127,.15)'}={}){
     if(lt<at-.01) return '';
     const m=max??Math.max(...rows.map(r=>r.value));
     return rows.map((r,i)=>{
@@ -106,14 +106,14 @@ const MOTION=(()=>{
     return h;
   }
   // giant scrolling text band
-  function marquee(t,text,{y=1480,size=220,speed=260,color='currentColor',outline=false,weight=700,rot=0,dir=-1}={}){
+  function marquee(t,text,{y=H*.771,size=220,speed=260,color='currentColor',outline=false,weight=700,rot=0,dir=-1}={}){
     const unit=`${esc(text)}&nbsp;·&nbsp;`, rep=unit.repeat(8);
     const off=((t*speed)%(size*text.length*.62+size))*dir;
     const st=outline?`color:transparent;-webkit-text-stroke:4px ${color}`:`color:${color}`;
     return `<div class="abs mo" style="left:0;top:${y}px;white-space:nowrap;font-size:${size}px;font-weight:${weight};line-height:1;${st};transform:rotate(${rot}deg) translateX(${off - size*4}px)">${rep}</div>`;
   }
   // growing accent bar (underline, divider)
-  function bar(lt,at,{x=90,y=900,w=300,h=18,color='var(--brand)',d=.5,from='left'}={}){
+  function bar(lt,at,{x=90,y=H*.469,w=300,h=18,color='var(--brand)',d=.5,from='left'}={}){
     if(lt<at) return '';
     const k=eo(lin(lt,at,at+d));
     return `<div class="abs" style="left:${x}px;top:${y}px;width:${w}px;height:${h}px;border-radius:${h}px;background:${color};transform:scaleX(${k});transform-origin:${from}"></div>`;
@@ -122,7 +122,7 @@ const MOTION=(()=>{
   function caption(lt,c,{y=1320,size=84,color='currentColor',hlColor='var(--brand)'}={}){
     const [s,e,text,o]=c; if(lt<s||lt>=e) return '';
     const fadeOut=1-lin(lt,e-.15,e);
-    return `<div style="opacity:${fadeOut}">${words(lt,s,text,{x:90,y:o.y&&o.y!==1400?o.y:y,w:W-240,size:o.size&&o.size!==84?o.size:size,align:'center',hl:o.hl,color,hlColor,stagger:.05,d:.35})}</div>`;
+    return `<div style="opacity:${fadeOut}">${words(lt,s,text,{x:90,y:o.y&&o.y!==H*.729?o.y:y,w:W-240,size:o.size&&o.size!==84?o.size:size,align:'center',hl:o.hl,color,hlColor,stagger:.05,d:.35})}</div>`;
   }
   return {bg,grid,mesh,words,counter,bars,reveal,cover,circleIn,shapes,marquee,bar,caption};
 })();

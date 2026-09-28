@@ -31,7 +31,7 @@ const STORY=(()=>{
     return `<div class="abs" style="inset:0;mix-blend-mode:screen;background:radial-gradient(45% 35% at ${x}% ${y}%,rgba(${color},${strength}),transparent 70%),radial-gradient(30% 25% at ${100-x}% ${90-y*.5}%,rgba(${color},${strength*.5}),transparent 70%)"></div>`;
   }
   // chapter card: small kicker + big italic serif title
-  function chapter(lt,at,{kicker='',title='',y=760,size=120,color='#fff'}={}){
+  function chapter(lt,at,{kicker='',title='',y=H*.396,size=120,color='#fff'}={}){
     if(lt<at) return '';
     const k=eo(lin(lt,at,at+.9)), k2=eo(lin(lt,at+.25,at+1.2));
     return `<div class="abs" style="left:90px;right:90px;top:${y}px;text-align:center;color:${color}">
@@ -47,7 +47,7 @@ const STORY=(()=>{
     return `<div class="st-sub" style="top:${y}px;font-size:${size}px;opacity:${op}">${words}</div>`;
   }
   // big pull quote
-  function quote(lt,at,text,{author='',y=560,size=92,color='#fff'}={}){
+  function quote(lt,at,text,{author='',y=H*.292,size=92,color='#fff'}={}){
     if(lt<at) return '';
     const k=eo(lin(lt,at,at+1));
     return `<div class="abs st-serif" style="left:100px;right:100px;top:${y}px;color:${color};opacity:${k};transform:translateY(${(1-k)*24}px)">
@@ -56,7 +56,7 @@ const STORY=(()=>{
       ${author?`<div style="margin-top:40px;font:600 36px var(--font);letter-spacing:.2em;text-transform:uppercase;opacity:.8">${esc(author)}</div>`:''}</div>`;
   }
   // typewriter place/date stamp, e.g. "OAXACA · 2019"
-  function stamp(lt,at,text,{x=90,y=250,size=38,color='#fff',cps=18}={}){
+  function stamp(lt,at,text,{x=90,y=H*.130,size=38,color='#fff',cps=18}={}){
     if(lt<at) return '';
     const n=Math.floor((lt-at)*cps), shown=[...text].slice(0,n).join('');
     const caret=Math.floor(lt*2)%2===0&&n<text.length+10?'▍':'';
