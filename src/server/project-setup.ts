@@ -50,8 +50,20 @@ function saveJob(j: SetupJob) {
 const log = (p: string, k: LogKind, x: string) => logTo(dir(p), k, x);
 const readLog = (p: string, n = 300) => readLogFrom(dir(p), n);
 
-const readRaw = (p: string): SetupJob | null =>
-	existsSync(jobFile(p)) ? JSON.parse(readFileSync(jobFile(p), "utf8")) : null;
+/** see studio-runner.ts's readRaw: a job.json can end up corrupt if a write was interrupted */
+const readRaw = (p: string): SetupJob | null => {
+	const f = jobFile(p);
+	if (!existsSync(f)) return null;
+	try {
+		return JSON.parse(readFileSync(f, "utf8"));
+	} catch (e) {
+		console.error(
+			`[setup] corrupt job.json for ${p}, ignoring:`,
+			(e as Error).message,
+		);
+		return null;
+	}
+};
 
 function readJob(p: string): SetupJob | null {
 	const j = readRaw(p);

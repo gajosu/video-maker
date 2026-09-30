@@ -56,7 +56,13 @@ const alive = (pid?: number) => {
 export function readJob(p: string, v: string): PkgJob | null {
 	const f = jobFile(p, v);
 	if (!existsSync(f)) return null;
-	const j = JSON.parse(readFileSync(f, "utf8")) as PkgJob;
+	let j: PkgJob;
+	try {
+		j = JSON.parse(readFileSync(f, "utf8")) as PkgJob;
+	} catch (e) {
+		console.error(`[package] corrupt job.json for ${p}/${v}, ignoring:`, (e as Error).message);
+		return null;
+	}
 	if (j.state === "running" && !alive(j.pid)) {
 		j.state = "error";
 		j.error = `worker process stopped without finishing (crash or restart). Re-run: bun vk package resume ${p} ${v}`;

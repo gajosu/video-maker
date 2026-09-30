@@ -121,10 +121,21 @@ export function sendNow(p: string, v: string): number {
 	return n;
 }
 
-const readRaw = (p: string, v: string): Job | null =>
-	existsSync(jobFile(p, v))
-		? JSON.parse(readFileSync(jobFile(p, v), "utf8"))
-		: null;
+/** a job.json can end up truncated/zero-filled if a write was interrupted (crash, killed process):
+ *  treat it as no job rather than letting one corrupt file crash every page that lists jobs */
+const readRaw = (p: string, v: string): Job | null => {
+	const f = jobFile(p, v);
+	if (!existsSync(f)) return null;
+	try {
+		return JSON.parse(readFileSync(f, "utf8"));
+	} catch (e) {
+		console.error(
+			`[studio] corrupt job.json for ${p}/${v}, ignoring:`,
+			(e as Error).message,
+		);
+		return null;
+	}
+};
 
 export function readJob(p: string, v: string): Job | null {
 	const j = readRaw(p, v);
